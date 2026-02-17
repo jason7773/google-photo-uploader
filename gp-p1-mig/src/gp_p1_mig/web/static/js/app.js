@@ -115,7 +115,7 @@ function refresh() {
         const s = data.stats || {};
         document.getElementById('statTotal').textContent = s.total || 0;
         document.getElementById('statPatched').textContent = s.patched || 0;
-        document.getElementById('statReady').textContent = s.ready || 0;
+        document.getElementById('statUploaded').textContent = s.uploaded || 0;
         document.getElementById('statFailed').textContent = s.failed || 0;
 
         // Tools
@@ -152,8 +152,8 @@ function renderBatches(batches) {
       <td>${b.created_at || ''}</td>
       <td>
         ${b.status === 'CREATED' ? `<button class="btn small" onclick="batchAction('push','${b.batch_id}')">Push</button>` : ''}
-        ${b.status === 'PUSHED' ? `<button class="btn small" onclick="batchAction('export-verify','${b.batch_id}')">Verify</button>` : ''}
-        ${b.status === 'VERIFIED' ? `<button class="btn small danger" onclick="batchAction('purge','${b.batch_id}')">Purge</button>` : ''}
+        ${b.status === 'PUSHED' ? `<button class="btn small" onclick="openVerifyModal('${b.batch_id}')">Verify</button>` : ''}
+        ${b.status === 'VERIFIED' ? `<button class="btn small danger" onclick="batchAction('purge','${b.batch_id}')">Purge (Free Space)</button>` : ''}
       </td>
     </tr>
   `).join('');
@@ -201,6 +201,70 @@ function runIngest() {
 }
 
 // ── Batch Actions ──
+let currentVerifyBatchId = null;
+
+function openVerifyModal(batchId) {
+    currentVerifyBatchId = batchId;
+    const list = document.getElementById('verifyList');
+    list.innerHTML = '<div style="padding:20px;text-align:center">載入中...</div>';
+    document.getElementById('verifyConfirmBtn').disabled = true;
+
+    // Fix: Use classList to toggle visibility so flex centering works
+    // document.getElementById('verifyModal').style.display = 'block'; 
+    document.getElementById('verifyModal').classList.add('show');
+
+    fetch('/api/batch-samples?batch_id=' + batchId)
+        .then(r => r.json())
+        .then(data => {
+            if (data.ok) {
+                renderVerifyList(data.samples || []);
+            } else {
+                list.innerHTML = '<div style="color:red">無法取得範例: ' + data.error + '</div>';
+            }
+        });
+}
+
+function renderVerifyList(samples) {
+    const list = document.getElementById('verifyList');
+    if (!samples.length) {
+        list.innerHTML = '<div style="padding:20px;text-align:center">此批次無檔案</div>';
+        return;
+    }
+    list.innerHTML = samples.map(name => `
+        <div class="verify-item">
+            <input type="checkbox" onchange="checkVerifyStatus()">
+            <span>${name}</span>
+            <button class="copy-btn" onclick="copyToClipboard('${name}')">複製</button>
+        </div>
+    `).join('');
+}
+
+function checkVerifyStatus() {
+    const checkboxes = document.querySelectorAll('#verifyList input[type="checkbox"]');
+    const allChecked = Array.from(checkboxes).every(c => c.checked);
+    document.getElementById('verifyConfirmBtn').disabled = !allChecked;
+}
+
+function copyToClipboard(text) {
+    navigator.clipboard.writeText(text).then(() => {
+        // user feedback could be here
+    });
+}
+
+function confirmVerifyBatch() {
+    if (!currentVerifyBatchId) return;
+    api('mark-verified', { batch_id: currentVerifyBatchId }).then(() => {
+        closeVerifyModal();
+        addLog('INFO', '✅ 批次 ' + currentVerifyBatchId + ' 已標記為 VERIFIED');
+        refresh();
+    });
+}
+
+function closeVerifyModal() {
+    document.getElementById('verifyModal').classList.remove('show');
+    currentVerifyBatchId = null;
+}
+
 function makeBatch() {
     const maxFiles = parseInt(document.getElementById('batchMaxFiles').value) || 1000;
     const maxBytes = parseInt(document.getElementById('batchMaxBytes').value) || 10737418240;
@@ -209,18 +273,16 @@ function makeBatch() {
 
 function batchAction(action, batchId) {
     if (action === 'push') {
-        document.getElementById('batchActionTitle').textContent = 'Push 批次到手機';
-        document.getElementById('batchActionId').value = batchId;
-        document.getElementById('devicePathGroup').style.display = 'block';
-        document.getElementById('batchActionBtn').onclick = () => {
-            closeModal('batchActionModal');
-            api('push', { batch_id: batchId, device_path: document.getElementById('devicePath').value });
-        };
-        document.getElementById('batchActionModal').classList.add('show');
-    } else if (action === 'export-verify') {
-        api('export-verify', { batch_id: batchId });
+        const devicePath = '/sdcard/DCIM/Camera'; // defaulting to what user wants
+        // If we want the modal back, we can uncomment previous logic
+        // But for "User Experience", maybe just pushing to default is faster?
+        // Let's stick to the modal for safety (user checks USB)
+        // Re-implementing the simple push confirmation
+        if (confirm('確認 Push 到 /sdcard/DCIM/Camera ?')) {
+            api('push', { batch_id: batchId, device_path: devicePath });
+        }
     } else if (action === 'purge') {
-        if (confirm('確定要清除批次 ' + batchId + ' 嗎？此操作不可復原。')) {
+        if (confirm('確定要清除批次 ' + batchId + ' 的本機快取嗎？(請確保 Google Photos 已備份)')) {
             api('purge', { batch_id: batchId });
         }
     }

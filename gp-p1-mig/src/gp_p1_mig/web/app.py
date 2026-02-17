@@ -17,6 +17,7 @@ from ..workflow import (
     cmd_ingest,
     cmd_init,
     cmd_make_batch,
+    cmd_mark_verified,
     cmd_patch,
     cmd_purge,
     cmd_push,
@@ -113,7 +114,7 @@ def index():
 def api_state():
     """Return current system state + DB stats."""
     r, d = _root(), _db()
-    stats = {"total": 0, "ready": 0, "patched": 0, "failed": 0, "new": 0}
+    stats = {"total": 0, "ready": 0, "patched": 0, "failed": 0, "new": 0, "uploaded": 0}
     batches = []
     tools = {}
     try:
@@ -128,6 +129,13 @@ def api_state():
             status = row["patch_status"].lower()
             stats[status] = row["cnt"]
             stats["total"] += row["cnt"]
+        
+        # Count uploaded items (items that have been assigned to a batch)
+        uploaded_count = conn.execute(
+            "SELECT COUNT(*) as cnt FROM media_items WHERE batch_id IS NOT NULL"
+        ).fetchone()
+        stats["uploaded"] = uploaded_count["cnt"] if uploaded_count else 0
+        
         for row in conn.execute(
             "SELECT batch_id, status, total_files, total_bytes, created_at FROM batches ORDER BY created_at DESC"
         ).fetchall():
@@ -245,6 +253,29 @@ def api_purge():
         return jsonify({"ok": False, "error": "請指定 Batch ID"}), 400
     _run_task("Purge", cmd_purge, _root(), _db(), batch_id=batch_id, purge_patched=True)
     return jsonify({"ok": True})
+
+
+@app.route("/api/mark-verified", methods=["POST"])
+def api_mark_verified():
+    data = request.json or {}
+    batch_id = data.get("batch_id", "")
+    if not batch_id:
+        return jsonify({"ok": False, "error": "請指定 Batch ID"}), 400
+    _run_task("Mark Verified", cmd_mark_verified, _db(), batch_id)
+    return jsonify({"ok": True})
+
+
+@app.route("/api/batch-samples", methods=["GET"])
+def api_batch_samples():
+    batch_id = request.args.get("batch_id", "")
+    if not batch_id:
+        return jsonify({"ok": False, "error": "請指定 Batch ID"}), 400
+    try:
+        from ..workflow import get_batch_samples
+        samples = get_batch_samples(_db(), batch_id)
+        return jsonify({"ok": True, "samples": samples})
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)}), 500
 
 
 # ── SocketIO events ──

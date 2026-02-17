@@ -264,7 +264,9 @@ def cmd_reconcile(db_path: Path) -> dict:
 
 def _run(cmd: list[str]) -> tuple[int, str, str]:
     p = subprocess.run(cmd, capture_output=True, text=True)
-    return p.returncode, p.stdout.strip(), p.stderr.strip()
+    stdout = p.stdout.strip() if p.stdout else ""
+    stderr = p.stderr.strip() if p.stderr else ""
+    return p.returncode, stdout, stderr
 
 
 def _verify_patch(
@@ -453,7 +455,7 @@ def cmd_make_batch(root: Path, db_path: Path, max_bytes: int, max_files: int) ->
     total_bytes = 0
     with transaction(db_path) as conn:
         rows = conn.execute(
-            "SELECT content_id, patched_path FROM media_items WHERE patch_status='PATCHED' AND batch_id IS NULL ORDER BY created_at"
+            "SELECT content_id, patched_path, original_name FROM media_items WHERE patch_status='PATCHED' AND batch_id IS NULL ORDER BY created_at"
         ).fetchall()
         for r in rows:
             p = Path(r["patched_path"])
@@ -462,7 +464,8 @@ def cmd_make_batch(root: Path, db_path: Path, max_bytes: int, max_files: int) ->
             size = p.stat().st_size
             if len(selected) >= max_files or total_bytes + size > max_bytes:
                 break
-            selected.append((r["content_id"], p, size))
+            # Store original_name for later usage
+            selected.append((r["content_id"], p, size, r["original_name"]))
             total_bytes += size
         if not selected:
             raise MigError("no PATCHED items available for batching")
@@ -479,11 +482,27 @@ def cmd_make_batch(root: Path, db_path: Path, max_bytes: int, max_files: int) ->
 
         manifest_csv = batch_root / "batch_manifest.csv"
         plan_json = batch_root / "push_plan.json"
+        
+        # Track used filenames in this batch to handle collisions
+        used_filenames = set()
+
         with manifest_csv.open("w", newline="", encoding="utf-8") as f:
             w = csv.writer(f)
             w.writerow(["batch_id", "content_id", "file_name", "file_size", "source_patched_path"])
-            for content_id, src, size in selected:
-                dst = files_dir / src.name
+            
+            for content_id, src, size, orig_name in selected:
+                # Resolve filename collision
+                candidate = orig_name
+                stem = Path(candidate).stem
+                suffix = Path(candidate).suffix
+                counter = 1
+                while candidate.lower() in used_filenames:
+                    candidate = f"{stem}_{counter}{suffix}"
+                    counter += 1
+                
+                used_filenames.add(candidate.lower())
+                dst = files_dir / candidate
+                
                 shutil.copy2(src, dst)
                 w.writerow([batch_id, content_id, dst.name, size, str(src)])
                 conn.execute(
@@ -527,15 +546,45 @@ def cmd_push(root: Path, db_path: Path, batch_id: str, device_path: str, adb_bin
             src_arg += os.sep
         src_arg += "."
         
+        log.info("正在推送檔案至裝置: %s ...", device_path)
         rc, _, stderr = _run([adb_bin, "push", src_arg, device_path])
         if rc != 0:
             raise MigError(f"adb push failed: {stderr}")
+
+        # --- Phase 1: Automated Verification (ADB) ---
+        log.info("推送完成，開始自動驗證 (抽查 50 檔)...")
+        # Get list of files in this batch from DB to verify
+        b_items = conn.execute("SELECT file_name, file_size FROM batch_items WHERE batch_id=?", (batch_id,)).fetchall()
+        if not b_items:
+             log.warning("批次無檔案，跳過驗證")
+        else:
+            # Pick random 50
+            import random
+            sample = random.sample(b_items, k=min(len(b_items), 50))
+            passed_count = 0
+            for item in sample:
+                # Check if file exists on device
+                # adb shell ls -l /sdcard/DCIM/Camera/IMG_2019.jpg
+                # use strict path joining for device path (always forward slash)
+                target_file = f"{device_path.rstrip('/')}/{item['file_name']}"
+                # Quote the path in case of spaces
+                cmd = [adb_bin, "shell", "ls", "-l", f"'{target_file}'"]
+                rc_ls, stdout_ls, _ = _run(cmd)
+                if rc_ls == 0 and stdout_ls and str(item['file_size']) in stdout_ls:
+                    passed_count += 1
+                else:
+                    log.warning("自動驗證失敗 (Missing/Size mismatch): %s", item['file_name'])
+            
+            log.info("自動驗證結果: %d/%d 通過", passed_count, len(sample))
+            # You might want to store this result or raise error if too many fail?
+            # For now, just log it.
+
         conn.execute(
             "UPDATE batches SET pushed_at=?, status='PUSHED', device_target_path=? WHERE batch_id=?",
             (now_iso(), device_path, batch_id),
         )
     log.info("批次 %s 推送完成 -> %s", batch_id, device_path)
-    return {"batch_id": batch_id, "device_path": device_path}
+    return {"batch_id": batch_id, "device_path": device_path, "verify_passed": passed_count if 'passed_count' in locals() else 0, "verify_total": len(sample) if 'sample' in locals() else 0}
 
 
 def cmd_export_verify(root: Path, db_path: Path, batch_id: str, sample_size: int = 30) -> dict:
@@ -631,3 +680,27 @@ def cmd_retry_failed(
     result = cmd_patch(root, db_path, exiftool_bin, ffmpeg_bin, progress=progress)
     result["reset"] = n
     return result
+
+
+def get_batch_samples(db_path: Path, batch_id: str, count: int = 5) -> list[str]:
+    with transaction(db_path) as conn:
+        rows = conn.execute(
+            "SELECT file_name FROM batch_items WHERE batch_id=? ORDER BY RANDOM() LIMIT ?",
+            (batch_id, count),
+        ).fetchall()
+        return [r["file_name"] for r in rows]
+
+
+def cmd_mark_verified(db_path: Path, batch_id: str) -> dict:
+    """Mark a batch as VERIFIED after user confirmation via UI."""
+    with transaction(db_path) as conn:
+        row = conn.execute("SELECT status FROM batches WHERE batch_id=?", (batch_id,)).fetchone()
+        if not row:
+            raise MigError(f"batch not found: {batch_id}")
+        if row["status"] != "PUSHED":
+            raise MigError(f"batch status must be PUSHED, current: {row['status']}")
+        
+        conn.execute("UPDATE batches SET status='VERIFIED', verified_at=? WHERE batch_id=?", (now_iso(), batch_id))
+    
+    log.info("批次 %s 已標記為 VERIFIED", batch_id)
+    return {"batch_id": batch_id, "status": "VERIFIED"}
