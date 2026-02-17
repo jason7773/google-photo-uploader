@@ -9,7 +9,7 @@ from flask import Flask, jsonify, render_template, request
 from flask_socketio import SocketIO
 
 from ..db import connect, init_db
-from ..tools import verify_tools
+from ..tools import find_adb, verify_tools
 from ..workflow import (
     MigError,
     cmd_export_verify,
@@ -206,7 +206,13 @@ def api_push():
     device_path = data.get("device_path", "/sdcard/DCIM/Camera")
     if not batch_id:
         return jsonify({"ok": False, "error": "請指定 Batch ID"}), 400
-    _run_task("Push", cmd_push, _root(), _db(), batch_id=batch_id, device_path=device_path)
+
+    try:
+        adb_bin = find_adb()
+    except Exception:
+        return jsonify({"ok": False, "error": "找不到 ADB 工具。請安裝 ADB 並加入 PATH，或是將 adb.exe 放入 tools/ 資料夾。"}), 500
+
+    _run_task("Push", cmd_push, _root(), _db(), batch_id=batch_id, device_path=device_path, adb_bin=adb_bin)
     return jsonify({"ok": True})
 
 

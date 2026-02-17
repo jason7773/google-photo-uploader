@@ -71,6 +71,10 @@ def find_ffmpeg(extra_dirs: list[Path] | None = None) -> str:
     return _find_bin("ffmpeg", extra_dirs)
 
 
+def find_adb(extra_dirs: list[Path] | None = None) -> str:
+    return _find_bin("adb", extra_dirs)
+
+
 def _version(bin_path: str) -> str:
     try:
         p = subprocess.run(
@@ -84,7 +88,7 @@ def _version(bin_path: str) -> str:
 def verify_tools(extra_dirs: list[Path] | None = None) -> dict[str, dict[str, str]]:
     """Return paths and versions for exiftool and ffmpeg."""
     result: dict[str, dict[str, str]] = {}
-    for name, finder in [("exiftool", find_exiftool), ("ffmpeg", find_ffmpeg)]:
+    for name, finder in [("exiftool", find_exiftool), ("ffmpeg", find_ffmpeg), ("adb", find_adb)]:
         try:
             path = finder(extra_dirs)
             result[name] = {"path": path, "version": _version(path)}
