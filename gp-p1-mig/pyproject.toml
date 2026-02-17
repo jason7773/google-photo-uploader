@@ -1,0 +1,25 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "gp-p1-mig"
+version = "0.1.0"
+description = "Google Photos Takeout migration CLI for Pixel 1 relay upload"
+readme = "README.md"
+requires-python = ">=3.11"
+authors = [{name = "gp-p1-mig"}]
+dependencies = [
+  "typer>=0.12",
+  "rich>=13.7"
+]
+
+[project.scripts]
+gp-p1-mig = "gp_p1_mig.cli:app"
+gp-p1-mig-ui = "gp_p1_mig.ui:main"
+
+[tool.setuptools]
+package-dir = {"" = "src"}
+
+[tool.setuptools.packages.find]
+where = ["src"]

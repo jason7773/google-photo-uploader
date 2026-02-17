@@ -1,0 +1,13 @@
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+*.db
+build/
+dist/
+*.spec
+.tmp/
+tmp/
+data/work/
+data/state/
+data/exports/
