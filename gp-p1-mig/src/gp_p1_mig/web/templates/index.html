@@ -88,15 +88,28 @@
 
     <!-- ═══ Batches Tab ═══ -->
     <section class="tab-content" id="tab-batches">
-      <h1>批次管理</h1>
+      <!-- Pipeline Buttons -->
       <div class="card">
-        <h2>建立新批次</h2>
+        <h2>📦 批次處理流程</h2>
         <div class="form-row">
-          <label>Max Files</label>
-          <input type="number" id="batchMaxFiles" value="1000" class="input">
-          <label>Max Bytes</label>
-          <input type="number" id="batchMaxBytes" value="10737418240" class="input">
-          <button class="btn" onclick="makeBatch()">建立批次</button>
+          <label>批次大小：</label>
+          <select id="batchMaxFiles" class="input" style="width: 150px;">
+            <option value="100">100 檔案</option>
+            <option value="200">200 檔案</option>
+            <option value="300">300 檔案</option>
+            <option value="400">400 檔案</option>
+            <option value="500" selected>500 檔案</option>
+          </select>
+          <label style="margin-left: 20px;">容量上限：</label>
+          <select id="batchMaxBytes" class="input" style="width: 150px;">
+            <option value="1073741824">1 GB</option>
+            <option value="2147483648">2 GB</option>
+            <option value="3221225472">3 GB</option>
+            <option value="4294967296">4 GB</option>
+            <option value="5368709120">5 GB</option>
+            <option value="10737418240" selected>10 GB</option>
+          </select>
+          <button class="btn" onclick="makeBatch()">建立批次 (Make Batch)</button>
         </div>
       </div>
       <div class="card">
