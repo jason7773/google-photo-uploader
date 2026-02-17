@@ -8,7 +8,7 @@ from tkinter import filedialog, messagebox, ttk
 from .workflow import (
     cmd_ingest, cmd_init, cmd_reconcile, cmd_patch,
     cmd_make_batch, cmd_export_verify, cmd_push,
-    cmd_import_verify, cmd_purge,
+    cmd_import_verify, cmd_purge, cmd_retry_failed,
 )
 
 
@@ -48,6 +48,7 @@ class App(tk.Tk):
             ("Ingest", self.do_ingest),
             ("Reconcile", self.do_reconcile),
             ("Patch", self.do_patch),
+            ("Retry failed", self.do_retry_failed),
             ("Make batch", self.do_make_batch),
             ("Push", self.do_push),
             ("Export verify", self.do_export_verify),
@@ -129,6 +130,10 @@ class App(tk.Tk):
     def do_purge(self):
         r, d = self._paths()
         return cmd_purge(r, d, batch_id=self.batch_var.get(), purge_patched=True)
+
+    def do_retry_failed(self):
+        r, d = self._paths()
+        return cmd_retry_failed(r, d)
 
 
 def main():

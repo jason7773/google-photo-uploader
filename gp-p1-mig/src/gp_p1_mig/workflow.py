@@ -14,7 +14,7 @@ import uuid
 import zipfile
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Iterable
+from typing import Callable, Iterable
 
 from .db import connect, init_db, transaction
 from .tools import find_exiftool, find_ffmpeg, verify_tools
@@ -22,6 +22,9 @@ from .tools import find_exiftool, find_ffmpeg, verify_tools
 log = logging.getLogger(__name__)
 
 MEDIA_EXTS = {".jpg", ".jpeg", ".heic", ".png", ".mp4", ".mov"}
+
+# Optional progress callback: (current, total, description) -> None
+ProgressCallback = Callable[[int, int, str], None] | None
 
 
 class MigError(RuntimeError):
@@ -50,6 +53,7 @@ def default_db(root: Path) -> Path:
 def cmd_init(root: Path, db_path: Path) -> str:
     ensure_workspace(root)
     init_db(db_path)
+    log.info("工作空間已初始化: root=%s, db=%s", root, db_path)
     return f"initialized db: {db_path}"
 
 
@@ -66,12 +70,16 @@ def _find_sidecar(media_path: Path) -> Path | None:
     return p if p.exists() else None
 
 
-def cmd_ingest(root: Path, db_path: Path, zip_path: Path, run_id: str | None = None) -> dict:
+def cmd_ingest(
+    root: Path, db_path: Path, zip_path: Path,
+    run_id: str | None = None, progress: ProgressCallback = None,
+) -> dict:
     ensure_workspace(root)
     run_id = run_id or datetime.now().strftime("%Y%m%d-%H%M%S")
     zip_name = zip_path.stem
     extract_root = root / "data" / "work" / "extracted" / run_id / zip_name
     extract_root.mkdir(parents=True, exist_ok=True)
+    log.info("開始匯入: zip=%s, run_id=%s", zip_path.name, run_id)
 
     with zipfile.ZipFile(zip_path, "r") as zf:
         # ZIP path traversal protection
@@ -81,19 +89,26 @@ def cmd_ingest(root: Path, db_path: Path, zip_path: Path, run_id: str | None = N
             if not str(resolved).startswith(extract_root_str):
                 raise MigError(f"Zip path traversal detected: {member}")
         zf.extractall(extract_root)
+    log.info("ZIP 解壓完成: %s", extract_root)
+
+    # Collect media files first for progress tracking
+    media_files = [
+        p for p in extract_root.rglob("*")
+        if p.is_file() and p.suffix.lower() in MEDIA_EXTS
+    ]
+    total = len(media_files)
+    log.info("偵測到 %d 個媒體檔案", total)
 
     ingested = 0
     duplicates = 0
-    scanned = 0
     with transaction(db_path) as conn:
         conn.execute(
             "INSERT INTO ingest_runs(run_id, source_zip, extracted_root, status) VALUES (?, ?, ?, 'DONE')",
             (run_id, str(zip_path), str(extract_root)),
         )
-        for path in extract_root.rglob("*"):
-            if not path.is_file() or path.suffix.lower() not in MEDIA_EXTS:
-                continue
-            scanned += 1
+        for i, path in enumerate(media_files, 1):
+            if progress:
+                progress(i, total, path.name)
             content_id = _sha256(path)
             sidecar = _find_sidecar(path)
             row = conn.execute("SELECT content_id FROM media_items WHERE content_id=?", (content_id,)).fetchone()
@@ -125,7 +140,8 @@ def cmd_ingest(root: Path, db_path: Path, zip_path: Path, run_id: str | None = N
             )
             ingested += 1
 
-    return {"run_id": run_id, "extract_root": str(extract_root), "scanned": scanned, "ingested": ingested, "duplicates": duplicates}
+    log.info("匯入完成: scanned=%d, ingested=%d, duplicates=%d", total, ingested, duplicates)
+    return {"run_id": run_id, "extract_root": str(extract_root), "scanned": total, "ingested": ingested, "duplicates": duplicates}
 
 
 def _normalize_stem(name: str) -> str:
@@ -163,8 +179,10 @@ def _parse_sidecar(sidecar: Path) -> tuple[int | None, float | None, float | Non
 def cmd_reconcile(db_path: Path) -> dict:
     matched = 0
     parsed = 0
+    log.info("開始比對 sidecar")
     with transaction(db_path) as conn:
         rows = conn.execute("SELECT id, extracted_path, sidecar_path, has_sidecar FROM media_items").fetchall()
+        log.info("共 %d 筆待比對", len(rows))
         by_dir: dict[str, list[Path]] = {}
         for r in rows:
             path = Path(r["extracted_path"])
@@ -206,6 +224,7 @@ def cmd_reconcile(db_path: Path) -> dict:
                     (ts, lat, lng, r["id"]),
                 )
                 parsed += 1
+    log.info("比對完成: matched=%d, parsed=%d", matched, parsed)
     return {"matched_sidecar": matched, "parsed": parsed}
 
 
@@ -276,6 +295,7 @@ def _verify_patch(
 def cmd_patch(
     root: Path, db_path: Path,
     exiftool_bin: str | None = None, ffmpeg_bin: str | None = None,
+    progress: ProgressCallback = None,
 ) -> dict:
     # Auto-detect tool paths if not explicitly provided
     exiftool_bin = exiftool_bin or find_exiftool()
@@ -292,7 +312,11 @@ def cmd_patch(
         rows = conn.execute(
             "SELECT id, content_id, ext, extracted_path, expected_taken_epoch, expected_lat, expected_lng FROM media_items WHERE patch_status='READY'"
         ).fetchall()
-        for r in rows:
+        total = len(rows)
+        log.info("共 %d 筆待 patch", total)
+        for idx, r in enumerate(rows, 1):
+            if progress:
+                progress(idx, total, Path(r["extracted_path"]).name)
             src = Path(r["extracted_path"])
             dst = patched_dir / f"{r['content_id']}.{r['ext']}"
             shutil.copy2(src, dst)
@@ -365,6 +389,7 @@ def cmd_patch(
                     (str(dst), r["id"]),
                 )
                 ok += 1
+    log.info("Patch 完成: ok=%d, failed=%d, verified=%d", ok, fail, verified)
     return {"patched": ok, "failed": fail, "verified": verified}
 
 
@@ -436,6 +461,7 @@ def cmd_make_batch(root: Path, db_path: Path, max_bytes: int, max_files: int) ->
             encoding="utf-8",
         )
 
+    log.info("批次 %s 建立完成: %d 檔, %d bytes", batch_id, len(selected), total_bytes)
     return {"batch_id": batch_id, "total_files": len(selected), "total_bytes": total_bytes}
 
 
@@ -454,6 +480,7 @@ def cmd_push(root: Path, db_path: Path, batch_id: str, device_path: str, adb_bin
             "UPDATE batches SET pushed_at=?, status='PUSHED', device_target_path=? WHERE batch_id=?",
             (now_iso(), device_path, batch_id),
         )
+    log.info("批次 %s 推送完成 -> %s", batch_id, device_path)
     return {"batch_id": batch_id, "device_path": device_path}
 
 
@@ -530,4 +557,23 @@ def cmd_purge(root: Path, db_path: Path, batch_id: str, purge_patched: bool = Fa
 
         conn.execute("UPDATE batches SET status='PURGED', purged_at=? WHERE batch_id=?", (now_iso(), batch_id))
 
+    log.info("清除完成: batch=%s, removed_patched=%d", batch_id, removed_patched)
     return {"batch_id": batch_id, "purged_files_dir": str(files_dir), "removed_patched": removed_patched}
+
+
+def cmd_retry_failed(
+    root: Path, db_path: Path,
+    exiftool_bin: str | None = None, ffmpeg_bin: str | None = None,
+    progress: ProgressCallback = None,
+) -> dict:
+    """Reset FAILED items to READY and re-run patch."""
+    with transaction(db_path) as conn:
+        n = conn.execute(
+            "UPDATE media_items SET patch_status='READY', patch_error=NULL, updated_at=CURRENT_TIMESTAMP WHERE patch_status='FAILED'"
+        ).rowcount
+    log.info("已重置 %d 筆 FAILED -> READY", n)
+    if n == 0:
+        return {"reset": 0, "patched": 0, "failed": 0, "verified": 0}
+    result = cmd_patch(root, db_path, exiftool_bin, ffmpeg_bin, progress=progress)
+    result["reset"] = n
+    return result
