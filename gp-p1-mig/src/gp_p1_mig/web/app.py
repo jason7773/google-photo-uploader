@@ -114,7 +114,7 @@ def index():
 def api_state():
     """Return current system state + DB stats."""
     r, d = _root(), _db()
-    stats = {"total": 0, "ready": 0, "patched": 0, "failed": 0, "new": 0, "uploaded": 0}
+    stats = {"total": 0, "pending": 0, "patched": 0, "batched": 0, "uploaded": 0, "failed": 0}
     batches = []
     tools = {}
     try:
@@ -123,18 +123,42 @@ def api_state():
         pass
     try:
         conn = connect(d)
-        for row in conn.execute(
-            "SELECT patch_status, COUNT(*) as cnt FROM media_items GROUP BY patch_status"
-        ).fetchall():
-            status = row["patch_status"].lower()
-            stats[status] = row["cnt"]
-            stats["total"] += row["cnt"]
         
-        # Count uploaded items (items that have been assigned to a batch)
-        uploaded_count = conn.execute(
-            "SELECT COUNT(*) as cnt FROM media_items WHERE batch_id IS NOT NULL"
-        ).fetchone()
-        stats["uploaded"] = uploaded_count["cnt"] if uploaded_count else 0
+        # 1. Total count
+        stats["total"] = conn.execute("SELECT COUNT(*) FROM media_items").fetchone()[0]
+        
+        # 2. Pending (NEW/READY)
+        stats["pending"] = conn.execute(
+            "SELECT COUNT(*) FROM media_items WHERE patch_status IN ('NEW', 'READY')"
+        ).fetchone()[0]
+        
+        # 3. Patched (PATCHED but NOT BATCHED)
+        stats["patched"] = conn.execute(
+            "SELECT COUNT(*) FROM media_items WHERE patch_status='PATCHED' AND batch_id IS NULL"
+        ).fetchone()[0]
+        
+        # 4. Batched (In batches but not yet verified)
+        stats["batched"] = conn.execute(
+            """
+            SELECT COUNT(*) FROM media_items m
+            JOIN batches b ON m.batch_id = b.batch_id
+            WHERE b.status NOT IN ('VERIFIED', 'PURGED')
+            """
+        ).fetchone()[0]
+        
+        # 5. Uploaded (Items in VERIFIED or PURGED batches only)
+        stats["uploaded"] = conn.execute(
+            """
+            SELECT COUNT(*) FROM media_items m
+            JOIN batches b ON m.batch_id = b.batch_id
+            WHERE b.status IN ('VERIFIED', 'PURGED')
+            """
+        ).fetchone()[0]
+        
+        # 6. Failed
+        stats["failed"] = conn.execute(
+            "SELECT COUNT(*) FROM media_items WHERE patch_status='FAILED'"
+        ).fetchone()[0]
         
         for row in conn.execute(
             "SELECT batch_id, status, total_files, total_bytes, created_at FROM batches ORDER BY created_at DESC"

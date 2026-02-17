@@ -114,7 +114,9 @@ function refresh() {
         // Stats
         const s = data.stats || {};
         document.getElementById('statTotal').textContent = s.total || 0;
+        document.getElementById('statPending').textContent = s.pending || 0;
         document.getElementById('statPatched').textContent = s.patched || 0;
+        document.getElementById('statBatched').textContent = s.batched || 0;
         document.getElementById('statUploaded').textContent = s.uploaded || 0;
         document.getElementById('statFailed').textContent = s.failed || 0;
 
@@ -152,7 +154,7 @@ function renderBatches(batches) {
       <td>${b.created_at || ''}</td>
       <td>
         ${b.status === 'CREATED' ? `<button class="btn small" onclick="batchAction('push','${b.batch_id}')">Push</button>` : ''}
-        ${b.status === 'PUSHED' ? `<button class="btn small" onclick="openVerifyModal('${b.batch_id}')">Verify</button>` : ''}
+        ${b.status === 'PUSHED' ? `<button class="btn small" onclick="verifyBatch('${b.batch_id}')">Verify</button>` : ''}
         ${b.status === 'VERIFIED' ? `<button class="btn small danger" onclick="batchAction('purge','${b.batch_id}')">Purge (Free Space)</button>` : ''}
       </td>
     </tr>
@@ -194,8 +196,10 @@ function closeModal(id) {
 }
 
 function runIngest() {
-    const zipPath = document.getElementById('ingestZipPath').value.trim();
+    let zipPath = document.getElementById('ingestZipPath').value.trim();
     if (!zipPath) { addLog('ERROR', '請輸入 ZIP 路徑'); return; }
+    // Strip surrounding quotes if present (from Windows Explorer copy)
+    zipPath = zipPath.replace(/^["']|["']$/g, '');
     closeModal('ingestModal');
     api('ingest', { zip_path: zipPath });
 }
@@ -207,7 +211,8 @@ function openVerifyModal(batchId) {
     currentVerifyBatchId = batchId;
     const list = document.getElementById('verifyList');
     list.innerHTML = '<div style="padding:20px;text-align:center">載入中...</div>';
-    document.getElementById('verifyConfirmBtn').disabled = true;
+    // No longer need to disable button - it's always enabled
+    document.getElementById('verifyConfirmBtn').disabled = false;
 
     // Fix: Use classList to toggle visibility so flex centering works
     // document.getElementById('verifyModal').style.display = 'block'; 
@@ -230,39 +235,64 @@ function renderVerifyList(samples) {
         list.innerHTML = '<div style="padding:20px;text-align:center">此批次無檔案</div>';
         return;
     }
+    // Remove checkboxes - just show the list with copy buttons
     list.innerHTML = samples.map(name => `
         <div class="verify-item">
-            <input type="checkbox" onchange="checkVerifyStatus()">
             <span>${name}</span>
             <button class="copy-btn" onclick="copyToClipboard('${name}')">複製</button>
         </div>
     `).join('');
 }
 
-function checkVerifyStatus() {
-    const checkboxes = document.querySelectorAll('#verifyList input[type="checkbox"]');
-    const allChecked = Array.from(checkboxes).every(c => c.checked);
-    document.getElementById('verifyConfirmBtn').disabled = !allChecked;
-}
-
 function copyToClipboard(text) {
     navigator.clipboard.writeText(text).then(() => {
-        // user feedback could be here
+        // Optional: show a brief success indicator
     });
 }
 
 function confirmVerifyBatch() {
     if (!currentVerifyBatchId) return;
-    api('mark-verified', { batch_id: currentVerifyBatchId }).then(() => {
-        closeVerifyModal();
-        addLog('INFO', '✅ 批次 ' + currentVerifyBatchId + ' 已標記為 VERIFIED');
-        refresh();
-    });
+
+    // Disable button to prevent double-click
+    const btn = document.getElementById('verifyConfirmBtn');
+    btn.disabled = true;
+    btn.textContent = '處理中...';
+
+    // Step 1: Mark as verified
+    api('mark-verified', { batch_id: currentVerifyBatchId })
+        .then(() => {
+            addLog('INFO', '✅ 批次 ' + currentVerifyBatchId + ' 已標記為 VERIFIED');
+            // Step 2: Immediately purge
+            return api('purge', { batch_id: currentVerifyBatchId });
+        })
+        .then(() => {
+            addLog('INFO', '🗑️ 批次 ' + currentVerifyBatchId + ' 已清除本機檔案');
+            closeVerifyModal();
+            refresh();
+        })
+        .catch(err => {
+            addLog('ERROR', '處理失敗: ' + err);
+            btn.disabled = false;
+            btn.textContent = '✅ 確認並刪除';
+        });
 }
 
 function closeVerifyModal() {
     document.getElementById('verifyModal').classList.remove('show');
     currentVerifyBatchId = null;
+}
+
+function verifyBatch(batchId) {
+    if (!confirm('確認要將批次 ' + batchId + ' 標記為 VERIFIED 嗎？\n\n請先在 Google Photos 確認檔案已成功上傳。')) {
+        return;
+    }
+
+    api('mark-verified', { batch_id: batchId }).then(() => {
+        addLog('INFO', '✅ 批次 ' + batchId + ' 已標記為 VERIFIED');
+        refresh();
+    }).catch(err => {
+        addLog('ERROR', 'Verify 失敗: ' + err);
+    });
 }
 
 function makeBatch() {

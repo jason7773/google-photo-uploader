@@ -89,7 +89,9 @@ def _find_sidecar(media_path: Path) -> Path | None:
     if p.exists():
         return p
     # Try Google's newer .supplemental-metadata.json format
-    p2 = media_path.with_suffix(media_path.suffix + ".supplemental-metadata.json")
+    # IMPORTANT: Use with_name() not with_suffix() because we want to APPEND, not REPLACE
+    # e.g. IMG_123.jpg -> IMG_123.jpg.supplemental-metadata.json (not IMG_123.supplemental-metadata.json)
+    p2 = media_path.with_name(media_path.name + ".supplemental-metadata.json")
     if p2.exists():
         return p2
     return None
@@ -101,10 +103,11 @@ def cmd_ingest(
 ) -> dict:
     ensure_workspace(root)
     run_id = run_id or datetime.now().strftime("%Y%m%d-%H%M%S")
-    zip_name = zip_path.stem
-    extract_root = root / "data" / "work" / "extracted" / run_id / zip_name
+    # Extract all ZIPs into the SAME directory so cross-ZIP folders merge
+    # (e.g. "2013年的相片" from ZIP#1 and ZIP#2 will end up together)
+    extract_root = root / "data" / "work" / "extracted"
     extract_root.mkdir(parents=True, exist_ok=True)
-    log.info("開始匯入: zip=%s, run_id=%s", zip_path.name, run_id)
+    log.info("開始匯入: zip=%s, run_id=%s, extract_to=%s", zip_path.name, run_id, extract_root)
 
     with zipfile.ZipFile(zip_path, "r") as zf:
         # ZIP path traversal protection

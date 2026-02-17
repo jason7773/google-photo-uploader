@@ -49,22 +49,30 @@
       <div class="tool-status" id="toolStatus"></div>
 
       <!-- Stats -->
-      <div class="stats-grid">
+      <div class="stats-grid" style="grid-template-columns: repeat(6, 1fr);">
         <div class="stat-card">
           <div class="stat-value" id="statTotal">0</div>
           <div class="stat-label">總檔案數</div>
         </div>
+        <div class="stat-card warning">
+          <div class="stat-value" id="statPending">0</div>
+          <div class="stat-label">待修復 (Pending)</div>
+        </div>
         <div class="stat-card success">
           <div class="stat-value" id="statPatched">0</div>
-          <div class="stat-label">已修復 (PATCHED)</div>
+          <div class="stat-label">待建立批次</div>
+        </div>
+        <div class="stat-card" style="border-color: rgba(59,130,246,0.3);">
+          <div class="stat-value" id="statBatched" style="color: #60a5fa;">0</div>
+          <div class="stat-label">處理中</div>
         </div>
         <div class="stat-card" style="border-color: rgba(139,92,246,0.3);">
           <div class="stat-value" id="statUploaded" style="color: #a78bfa;">0</div>
-          <div class="stat-label">已上傳 (UPLOADED)</div>
+          <div class="stat-label">已上傳</div>
         </div>
         <div class="stat-card danger">
           <div class="stat-value" id="statFailed">0</div>
-          <div class="stat-label">失敗 (FAILED)</div>
+          <div class="stat-label">失敗</div>
         </div>
       </div>
 
@@ -364,9 +372,8 @@ FA6B90303015    device</code></pre>
           <!-- Items will be injected here -->
         </div>
         <div class="verify-actions">
-          <button id="verifyConfirmBtn" class="btn" disabled onclick="confirmVerifyBatch()">✅ 確認已核對，標記為
-            VERIFIED</button>
-          <p class="hint-text">全選後即可啟用按鈕。驗證後可執行 Purge 釋放空間。</p>
+          <button id="verifyConfirmBtn" class="btn" onclick="confirmVerifyBatch()">✅ 確認並刪除</button>
+          <p class="hint-text">確認後將標記為 VERIFIED 並立即清除本機所有相關檔案（批次、修復檔、原始檔）。</p>
         </div>
       </div>
     </div>
@@ -424,13 +431,6 @@ FA6B90303015    device</code></pre>
 
     .verify-item:last-child {
       border-bottom: none;
-    }
-
-    .verify-item input[type="checkbox"] {
-      margin-right: 10px;
-      transform: scale(1.3);
-      cursor: pointer;
-      flex-shrink: 0;
     }
 
     .verify-item span {
