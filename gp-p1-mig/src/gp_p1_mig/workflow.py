@@ -519,7 +519,15 @@ def cmd_push(root: Path, db_path: Path, batch_id: str, device_path: str, adb_bin
         files_dir = Path(row["local_batch_path"]) / "files"
         if not files_dir.exists():
             raise MigError(f"batch files missing: {files_dir}")
-        rc, _, stderr = _run([adb_bin, "push", str(files_dir), device_path])
+        
+        # User wants to push *contents* directly to Camera, preventing a 'files' subdir.
+        # Adding 'u\.' (e.g. 'files\.') tells adb to push contents.
+        src_arg = str(files_dir)
+        if not src_arg.endswith(os.sep):
+            src_arg += os.sep
+        src_arg += "."
+        
+        rc, _, stderr = _run([adb_bin, "push", src_arg, device_path])
         if rc != 0:
             raise MigError(f"adb push failed: {stderr}")
         conn.execute(

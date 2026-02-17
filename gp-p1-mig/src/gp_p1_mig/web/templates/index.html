@@ -1,5 +1,6 @@
 <!DOCTYPE html>
 <html lang="zh-Hant">
+
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -8,6 +9,7 @@
   <script src="https://cdn.socket.io/4.7.4/socket.io.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
 </head>
+
 <body>
   <!-- ── Sidebar ── -->
   <nav class="sidebar">
@@ -17,17 +19,17 @@
     </div>
     <ul class="nav-links">
       <li><a href="#" class="nav-link active" data-tab="dashboard">
-        <span class="nav-icon">📊</span> 儀表板
-      </a></li>
+          <span class="nav-icon">📊</span> 儀表板
+        </a></li>
       <li><a href="#" class="nav-link" data-tab="batches">
-        <span class="nav-icon">📦</span> 批次管理
-      </a></li>
+          <span class="nav-icon">📦</span> 批次管理
+        </a></li>
       <li><a href="#" class="nav-link" data-tab="settings">
-        <span class="nav-icon">⚙️</span> 系統設定
-      </a></li>
+          <span class="nav-icon">⚙️</span> 系統設定
+        </a></li>
       <li><a href="#" class="nav-link" data-tab="help">
-        <span class="nav-icon">📖</span> 使用說明
-      </a></li>
+          <span class="nav-icon">📖</span> 使用說明
+        </a></li>
     </ul>
     <div class="sidebar-footer">
       <div class="connection-status" id="connStatus">
@@ -48,10 +50,22 @@
 
       <!-- Stats Cards -->
       <div class="stats-grid" id="statsGrid">
-        <div class="stat-card"><div class="stat-value" id="statTotal">-</div><div class="stat-label">總檔案</div></div>
-        <div class="stat-card success"><div class="stat-value" id="statPatched">-</div><div class="stat-label">已修復</div></div>
-        <div class="stat-card warning"><div class="stat-value" id="statReady">-</div><div class="stat-label">待處理</div></div>
-        <div class="stat-card danger"><div class="stat-value" id="statFailed">-</div><div class="stat-label">失敗</div></div>
+        <div class="stat-card">
+          <div class="stat-value" id="statTotal">-</div>
+          <div class="stat-label">總檔案</div>
+        </div>
+        <div class="stat-card success">
+          <div class="stat-value" id="statPatched">-</div>
+          <div class="stat-label">已修復</div>
+        </div>
+        <div class="stat-card warning">
+          <div class="stat-value" id="statReady">-</div>
+          <div class="stat-label">待處理</div>
+        </div>
+        <div class="stat-card danger">
+          <div class="stat-value" id="statFailed">-</div>
+          <div class="stat-label">失敗</div>
+        </div>
       </div>
 
       <!-- Pipeline Buttons -->
@@ -70,26 +84,6 @@
         </div>
       </div>
 
-      <!-- Progress -->
-      <div class="card" id="progressCard" style="display:none">
-        <h2 id="taskLabel">進度</h2>
-        <div class="progress-bar-container">
-          <div class="progress-bar" id="progressBar" style="width:0%"></div>
-        </div>
-        <div class="progress-info">
-          <span id="progressDesc">等待中...</span>
-          <span id="progressPct">0%</span>
-        </div>
-      </div>
-
-      <!-- Log -->
-      <div class="card">
-        <div class="log-header">
-          <h2>操作日誌</h2>
-          <button class="btn small" onclick="clearLog()">清除</button>
-        </div>
-        <div class="log-area" id="logArea"></div>
-      </div>
     </section>
 
     <!-- ═══ Batches Tab ═══ -->
@@ -110,11 +104,18 @@
         <table class="batch-table">
           <thead>
             <tr>
-              <th>Batch ID</th><th>狀態</th><th>檔案數</th><th>大小</th><th>建立時間</th><th>操作</th>
+              <th>Batch ID</th>
+              <th>狀態</th>
+              <th>檔案數</th>
+              <th>大小</th>
+              <th>建立時間</th>
+              <th>操作</th>
             </tr>
           </thead>
           <tbody id="batchTableBody">
-            <tr><td colspan="6" class="empty">尚無批次</td></tr>
+            <tr>
+              <td colspan="6" class="empty">尚無批次</td>
+            </tr>
           </tbody>
         </table>
       </div>
@@ -152,7 +153,8 @@
           <!-- Overview -->
           <div class="help-section active" id="help-overview">
             <h2>📸 專案目的</h2>
-            <p>此工具將 <strong>Google Photos Takeout</strong> 匯出的照片/影片，修復 GPS 座標與拍攝時間後，透過 Pixel 1 手機重新上傳回 Google Photos，以保留「原始畫質免費無限空間」的福利。</p>
+            <p>此工具將 <strong>Google Photos Takeout</strong> 匯出的照片/影片，修復 GPS 座標與拍攝時間後，透過 Pixel 1 手機重新上傳回 Google
+              Photos，以保留「原始畫質免費無限空間」的福利。</p>
             <div class="info-box">
               <strong>🔒 完全本地端運行</strong><br>
               所有資料處理均在你的電腦上完成，不會上傳至任何伺服器。此瀏覽器介面僅是本機程式的圖形操作介面。
@@ -185,19 +187,25 @@
             <div class="step-flow">
               <div class="step"><span class="step-num">1</span><strong>Init</strong><br>初始化工作區與資料庫</div>
               <div class="step-arrow">→</div>
-              <div class="step"><span class="step-num">2</span><strong>Ingest</strong><br>匯入 Google Takeout ZIP<br><small>會自動掃描並去重</small></div>
+              <div class="step"><span class="step-num">2</span><strong>Ingest</strong><br>匯入 Google Takeout
+                ZIP<br><small>會自動掃描並去重</small></div>
               <div class="step-arrow">→</div>
-              <div class="step"><span class="step-num">3</span><strong>Reconcile</strong><br>比對 JSON sidecar<br><small>解析 GPS 與拍攝時間</small></div>
+              <div class="step"><span class="step-num">3</span><strong>Reconcile</strong><br>比對 JSON
+                sidecar<br><small>解析 GPS 與拍攝時間</small></div>
               <div class="step-arrow">→</div>
-              <div class="step"><span class="step-num">4</span><strong>Patch</strong><br>用 ExifTool/FFmpeg<br><small>寫入正確 metadata</small></div>
+              <div class="step"><span class="step-num">4</span><strong>Patch</strong><br>用
+                ExifTool/FFmpeg<br><small>寫入正確 metadata</small></div>
               <div class="step-arrow">→</div>
-              <div class="step"><span class="step-num">5</span><strong>Make Batch</strong><br>分批打包<br><small>限制檔案數與容量</small></div>
+              <div class="step"><span class="step-num">5</span><strong>Make
+                  Batch</strong><br>分批打包<br><small>限制檔案數與容量</small></div>
               <div class="step-arrow">→</div>
               <div class="step"><span class="step-num">6</span><strong>Push</strong><br>ADB 推送到手機</div>
               <div class="step-arrow">→</div>
-              <div class="step"><span class="step-num">7</span><strong>Verify</strong><br>匯出驗證清單<br><small>確認 Google Photos 顯示正確</small></div>
+              <div class="step"><span class="step-num">7</span><strong>Verify</strong><br>匯出驗證清單<br><small>確認 Google
+                  Photos 顯示正確</small></div>
               <div class="step-arrow">→</div>
-              <div class="step"><span class="step-num">8</span><strong>Purge</strong><br>清除已驗證批次<br><small>釋放硬碟空間</small></div>
+              <div class="step"><span
+                  class="step-num">8</span><strong>Purge</strong><br>清除已驗證批次<br><small>釋放硬碟空間</small></div>
             </div>
             <div class="info-box">
               <strong>💡 多個 ZIP？</strong><br>
@@ -208,37 +216,72 @@
           <!-- FAQ -->
           <div class="help-section" id="help-faq">
             <h2>❓ 常見問題</h2>
-            <details><summary><strong>如何看更詳細的日誌？</strong></summary>
-              <p>在 CLI 模式加 <code>--verbose</code> 旗標，例如 <code>gp-p1-mig patch --verbose</code>。Web UI 的日誌面板則會即時顯示所有 INFO 及以上日誌。</p>
+            <details>
+              <summary><strong>如何看更詳細的日誌？</strong></summary>
+              <p>在 CLI 模式加 <code>--verbose</code> 旗標，例如 <code>gp-p1-mig patch --verbose</code>。Web UI 的日誌面板則會即時顯示所有 INFO
+                及以上日誌。</p>
             </details>
-            <details><summary><strong>Patch 失敗了怎麼辦？</strong></summary>
+            <details>
+              <summary><strong>Patch 失敗了怎麼辦？</strong></summary>
               <p>點選儀表板的 <strong>Retry Failed</strong> 按鈕，會自動重置 FAILED 項目並重新嘗試。</p>
             </details>
-            <details><summary><strong>(0,0) 座標是什麼意思？</strong></summary>
+            <details>
+              <summary><strong>(0,0) 座標是什麼意思？</strong></summary>
               <p>Google Takeout 用 (0, 0) 表示「無地點資訊」。本程式會自動過濾，不寫入 GPS。</p>
             </details>
-            <details><summary><strong>如何確認 GPS 方向正確？</strong></summary>
-              <p>Patch 程式會自動讀回 metadata 做比對驗證（容許 ±0.001°），若有錯誤會標記為 FAILED。你也可以手動用 <code>exiftool -GPSLatitude -GPSLatitudeRef file.jpg</code> 檢查。</p>
+            <details>
+              <summary><strong>如何確認 GPS 方向正確？</strong></summary>
+              <p>Patch 程式會自動讀回 metadata 做比對驗證（容許 ±0.001°），若有錯誤會標記為 FAILED。你也可以手動用
+                <code>exiftool -GPSLatitude -GPSLatitudeRef file.jpg</code> 檢查。
+              </p>
             </details>
           </div>
 
           <!-- Troubleshoot -->
           <div class="help-section" id="help-troubleshoot">
             <h2>🔧 問題排除</h2>
-            <details><summary><strong>ExifTool 找不到</strong></summary>
-              <p>確認 <code>exiftool.exe</code> 位於 <code>gp-p1-mig/tools/</code> 目錄內，且已改名（去除 <code>(-k)</code> 後綴）。儀表板頂部工具偵測器會顯示目前偵測狀態。</p>
+            <details>
+              <summary><strong>ExifTool 找不到</strong></summary>
+              <p>確認 <code>exiftool.exe</code> 位於 <code>gp-p1-mig/tools/</code> 目錄內，且已改名（去除 <code>(-k)</code>
+                後綴）。儀表板頂部工具偵測器會顯示目前偵測狀態。</p>
             </details>
-            <details><summary><strong>ADB 推送失敗</strong></summary>
+            <details>
+              <summary><strong>ADB 推送失敗</strong></summary>
               <p>1. 確認手機已連接電腦<br>2. 確認已開啟 USB 偵錯<br>3. 手機上點選「允許 USB 偵錯」<br>4. 執行 <code>adb devices</code> 確認裝置有列出</p>
             </details>
-            <details><summary><strong>DB 被鎖</strong></summary>
+            <details>
+              <summary><strong>DB 被鎖</strong></summary>
               <p>若顯示 "database is locked"，請確認沒有其他程式（如 DB Browser）正在開啟同一個 <code>state.db</code>。</p>
             </details>
-            <details><summary><strong>卡在初始化 / 按鈕沒反應</strong></summary>
+            <details>
+              <summary><strong>卡在初始化 / 按鈕沒反應</strong></summary>
               <p>查看日誌面板是否有 ERROR。大多數情況是路徑設定不正確，請到「系統設定」確認 Root 與 DB 路徑。</p>
             </details>
           </div>
         </div>
+      </div>
+    </section>
+    <!-- ═══ Global Status (Progress & Log) ═══ -->
+    <section class="global-status" style="margin-top: 40px; border-top: 1px solid var(--border); padding-top: 24px;">
+      <!-- Progress -->
+      <div class="card" id="progressCard" style="display:none">
+        <h2 id="taskLabel">進度</h2>
+        <div class="progress-bar-container">
+          <div class="progress-bar" id="progressBar" style="width:0%"></div>
+        </div>
+        <div class="progress-info">
+          <span id="progressDesc">等待中...</span>
+          <span id="progressPct">0%</span>
+        </div>
+      </div>
+
+      <!-- Log -->
+      <div class="card">
+        <div class="log-header">
+          <h2>操作日誌</h2>
+          <button class="btn small" onclick="clearLog()">清除</button>
+        </div>
+        <div class="log-area" id="logArea"></div>
       </div>
     </section>
   </main>
@@ -279,4 +322,5 @@
 
   <script src="/static/js/app.js"></script>
 </body>
+
 </html>
