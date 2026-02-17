@@ -636,7 +636,7 @@ def cmd_import_verify(db_path: Path, batch_id: str, result_csv: Path) -> dict:
     return {"batch_id": batch_id, "status": status, "rows": len(rows)}
 
 
-def cmd_purge(root: Path, db_path: Path, batch_id: str, purge_patched: bool = False) -> dict:
+def cmd_purge(root: Path, db_path: Path, batch_id: str, purge_patched: bool = True) -> dict:
     with transaction(db_path) as conn:
         row = conn.execute("SELECT status, local_batch_path FROM batches WHERE batch_id=?", (batch_id,)).fetchone()
         if not row:
@@ -644,24 +644,59 @@ def cmd_purge(root: Path, db_path: Path, batch_id: str, purge_patched: bool = Fa
         if row["status"] != "VERIFIED":
             raise MigError("purge is only allowed for VERIFIED batch")
 
+        # 1. Delete batch files directory
         files_dir = Path(row["local_batch_path"]) / "files"
         if files_dir.exists():
             shutil.rmtree(files_dir)
 
-        removed_patched = 0
-        if purge_patched:
-            items = conn.execute("SELECT patched_path FROM media_items WHERE batch_id=?", (batch_id,)).fetchall()
-            for it in items:
-                if it["patched_path"]:
-                    p = Path(it["patched_path"])
-                    if p.exists():
-                        p.unlink()
-                        removed_patched += 1
+        # 2. Delete patched files + extracted originals + sidecars
+        items = conn.execute(
+            "SELECT extracted_path, sidecar_path, patched_path FROM media_items WHERE batch_id=?",
+            (batch_id,),
+        ).fetchall()
 
+        removed_patched = 0
+        removed_extracted = 0
+        removed_sidecar = 0
+
+        for it in items:
+            # Delete patched file
+            if it["patched_path"]:
+                p = Path(it["patched_path"])
+                if p.exists():
+                    p.unlink()
+                    removed_patched += 1
+
+            # Delete original extracted file
+            if it["extracted_path"]:
+                p = Path(it["extracted_path"])
+                if p.exists():
+                    p.unlink()
+                    removed_extracted += 1
+
+            # Delete sidecar JSON
+            if it["sidecar_path"]:
+                p = Path(it["sidecar_path"])
+                if p.exists():
+                    p.unlink()
+                    removed_sidecar += 1
+
+        conn.execute(
+            "UPDATE media_items SET patched_path=NULL, patch_status='PURGED' WHERE batch_id=?",
+            (batch_id,),
+        )
         conn.execute("UPDATE batches SET status='PURGED', purged_at=? WHERE batch_id=?", (now_iso(), batch_id))
 
-    log.info("清除完成: batch=%s, removed_patched=%d", batch_id, removed_patched)
-    return {"batch_id": batch_id, "purged_files_dir": str(files_dir), "removed_patched": removed_patched}
+    log.info(
+        "清除完成: batch=%s, patched=%d, extracted=%d, sidecar=%d",
+        batch_id, removed_patched, removed_extracted, removed_sidecar,
+    )
+    return {
+        "batch_id": batch_id,
+        "removed_patched": removed_patched,
+        "removed_extracted": removed_extracted,
+        "removed_sidecar": removed_sidecar,
+    }
 
 
 def cmd_retry_failed(
