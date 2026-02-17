@@ -35,6 +35,24 @@ def now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
+def _detect_real_ext(path: Path) -> str:
+    """Read file magic bytes to detect actual format regardless of extension."""
+    try:
+        with open(path, "rb") as f:
+            header = f.read(12)
+        if header[:3] == b'\xff\xd8\xff':
+            return "jpg"
+        if header[:8] == b'\x89PNG\r\n\x1a\n':
+            return "png"
+        if header[4:12] == b'ftypheic' or header[4:12] == b'ftypmif1':
+            return "heic"
+        if header[4:8] in (b'ftyp', b'moov', b'mdat'):
+            return "mp4"
+    except OSError:
+        pass
+    return path.suffix.lower().lstrip(".")
+
+
 def ensure_workspace(root: Path) -> None:
     for p in [
         root / "data" / "state",
@@ -203,12 +221,16 @@ def cmd_reconcile(db_path: Path) -> dict:
         for r in rows:
             media_path = Path(r["extracted_path"])
             if not r["has_sidecar"]:
+                # Try fuzzy match from directory listing
                 norm = _normalize_stem(media_path.name)
                 candidate = None
                 for json_path in by_dir.get(str(media_path.parent), []):
                     if _normalize_stem(json_path.name) == norm:
                         candidate = json_path
                         break
+                # Fallback: try direct _find_sidecar (handles .supplemental-metadata.json)
+                if not candidate:
+                    candidate = _find_sidecar(media_path)
                 if candidate:
                     conn.execute(
                         "UPDATE media_items SET sidecar_path=?, has_sidecar=1, updated_at=CURRENT_TIMESTAMP WHERE id=?",
@@ -217,6 +239,8 @@ def cmd_reconcile(db_path: Path) -> dict:
                     matched += 1
                     sidecar = candidate
                 else:
+                    # No sidecar found yet — keep as NEW
+                    # (JSON may arrive in a later ZIP import)
                     continue
             else:
                 sidecar = Path(r["sidecar_path"])
@@ -277,7 +301,9 @@ def _verify_patch(
                 # exiftool returns "YYYY:MM:DD HH:MM:SS"
                 dt = datetime.strptime(str(dto_str), "%Y:%m:%d %H:%M:%S")
                 actual_epoch = int(dt.replace(tzinfo=timezone.utc).timestamp())
-                if abs(actual_epoch - expected_epoch) > 2:
+                diff = abs(actual_epoch - expected_epoch)
+                # Allow ±2s precision and timezone offset differences (multiples of 3600, up to ±14h)
+                if diff > 2 and not (diff % 3600 <= 2 and diff <= 50400):
                     issues.append(f"timestamp mismatch: expected={expected_epoch}, actual={actual_epoch}")
             except ValueError:
                 issues.append(f"cannot parse DateTimeOriginal: {dto_str}")
@@ -328,10 +354,15 @@ def cmd_patch(
             if progress:
                 progress(idx, total, Path(r["extracted_path"]).name)
             src = Path(r["extracted_path"])
-            dst = patched_dir / f"{r['content_id']}.{r['ext']}"
+            # Detect actual format (handles .PNG files that are really JPEG)
+            real_ext = _detect_real_ext(src)
+            ext = real_ext if real_ext != r["ext"] else r["ext"]
+            if ext != r["ext"]:
+                log.info("副檔名修正: %s (.%s → .%s)", src.name, r['ext'], ext)
+            dst = patched_dir / f"{r['content_id']}.{ext}"
             shutil.copy2(src, dst)
             err = ""
-            is_image = r["ext"] in {"jpg", "jpeg", "heic", "png"}
+            is_image = ext in {"jpg", "jpeg", "heic", "png"}
 
             if is_image:
                 # ── Image patch via exiftool ──
@@ -348,9 +379,12 @@ def cmd_patch(
                         f"-GPSLongitudeRef={'E' if lng >= 0 else 'W'}",
                     ]
                 cmd += [str(dst)]
-                rc, _, stderr = _run(cmd)
+                rc, stdout_txt, stderr = _run(cmd)
                 if rc != 0:
-                    err = stderr
+                    # ExifTool may exit with rc=1 for OtherImageStart errors
+                    # but still successfully write metadata. Don't set err here;
+                    # let the post-patch verification determine actual success.
+                    log.warning("ExifTool 回傳非零 (%d)，將以驗證結果為準: %s", rc, src.name)
             else:
                 # ── Video patch via ffmpeg ──
                 tmp = dst.with_suffix(".tmp" + dst.suffix)
@@ -377,14 +411,16 @@ def cmd_patch(
                         tmp.unlink()
 
             # ── Post-patch verification (images only; video metadata is harder to read back) ──
-            if not err and is_image:
+            if is_image:
                 verify_err = _verify_patch(
                     exiftool_bin, dst,
                     r["expected_taken_epoch"], r["expected_lat"], r["expected_lng"],
                 )
                 if verify_err:
-                    err = f"verify-failed: {verify_err}"
+                    if not err:
+                        err = f"verify-failed: {verify_err}"
                 else:
+                    err = ""  # verification passed — clear any ExifTool warnings
                     verified += 1
 
             if err:
