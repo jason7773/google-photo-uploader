@@ -11,3 +11,5 @@ tmp/
 data/work/
 data/state/
 data/exports/
+tools/*.exe
+tools/*.dll

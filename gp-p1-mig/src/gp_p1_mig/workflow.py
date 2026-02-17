@@ -3,6 +3,7 @@ from __future__ import annotations
 import csv
 import hashlib
 import json
+import logging
 import os
 import random
 import re
@@ -16,6 +17,9 @@ from pathlib import Path
 from typing import Iterable
 
 from .db import connect, init_db
+from .tools import find_exiftool, find_ffmpeg, verify_tools
+
+log = logging.getLogger(__name__)
 
 MEDIA_EXTS = {".jpg", ".jpeg", ".heic", ".png", ".mp4", ".mov"}
 
@@ -70,6 +74,12 @@ def cmd_ingest(root: Path, db_path: Path, zip_path: Path, run_id: str | None = N
     extract_root.mkdir(parents=True, exist_ok=True)
 
     with zipfile.ZipFile(zip_path, "r") as zf:
+        # ZIP path traversal protection
+        extract_root_str = str(extract_root.resolve())
+        for member in zf.namelist():
+            resolved = (extract_root / member).resolve()
+            if not str(resolved).startswith(extract_root_str):
+                raise MigError(f"Zip path traversal detected: {member}")
         zf.extractall(extract_root)
 
     conn = connect(db_path)
@@ -148,6 +158,9 @@ def _parse_sidecar(sidecar: Path) -> tuple[int | None, float | None, float | Non
     geo = data.get("geoDataExif") or data.get("geoData") or {}
     lat = geo.get("latitude")
     lng = geo.get("longitude")
+    # Google Takeout uses (0, 0) to represent "no location"
+    if lat == 0.0 and lng == 0.0:
+        lat, lng = None, None
     return ts, lat, lng
 
 
@@ -209,12 +222,81 @@ def _run(cmd: list[str]) -> tuple[int, str, str]:
     return p.returncode, p.stdout.strip(), p.stderr.strip()
 
 
-def cmd_patch(root: Path, db_path: Path, exiftool_bin: str = "exiftool", ffmpeg_bin: str = "ffmpeg") -> dict:
+def _verify_patch(
+    exiftool_bin: str, dst: Path,
+    expected_epoch: int | None,
+    expected_lat: float | None, expected_lng: float | None,
+) -> str | None:
+    """Read back metadata from *dst* and compare against expectations.
+
+    Returns ``None`` on success or a human-readable diff string on mismatch.
+    """
+    rc, stdout, _ = _run([
+        exiftool_bin, "-j", "-n",   # -n = numeric output (no formatting)
+        "-DateTimeOriginal", "-GPSLatitude", "-GPSLongitude",
+        str(dst),
+    ])
+    if rc != 0:
+        return "exiftool read-back failed"
+    try:
+        data = json.loads(stdout)
+        if not data:
+            return "exiftool returned empty JSON"
+        info = data[0]
+    except (json.JSONDecodeError, IndexError):
+        return "exiftool JSON parse error"
+
+    issues: list[str] = []
+
+    # --- Verify timestamp (allow ±2 seconds) ---
+    if expected_epoch:
+        dto_str = info.get("DateTimeOriginal", "")
+        if dto_str:
+            try:
+                # exiftool returns "YYYY:MM:DD HH:MM:SS"
+                dt = datetime.strptime(str(dto_str), "%Y:%m:%d %H:%M:%S")
+                actual_epoch = int(dt.replace(tzinfo=timezone.utc).timestamp())
+                if abs(actual_epoch - expected_epoch) > 2:
+                    issues.append(f"timestamp mismatch: expected={expected_epoch}, actual={actual_epoch}")
+            except ValueError:
+                issues.append(f"cannot parse DateTimeOriginal: {dto_str}")
+        else:
+            issues.append("DateTimeOriginal not found after patch")
+
+    # --- Verify GPS (allow ±0.001°) ---
+    if expected_lat is not None and expected_lng is not None:
+        actual_lat = info.get("GPSLatitude")
+        actual_lng = info.get("GPSLongitude")
+        if actual_lat is None or actual_lng is None:
+            issues.append("GPS not found after patch")
+        else:
+            try:
+                if abs(float(actual_lat) - expected_lat) > 0.001:
+                    issues.append(f"latitude mismatch: expected={expected_lat}, actual={actual_lat}")
+                if abs(float(actual_lng) - expected_lng) > 0.001:
+                    issues.append(f"longitude mismatch: expected={expected_lng}, actual={actual_lng}")
+            except (ValueError, TypeError):
+                issues.append(f"GPS parse error: lat={actual_lat}, lng={actual_lng}")
+
+    return "; ".join(issues) if issues else None
+
+
+def cmd_patch(
+    root: Path, db_path: Path,
+    exiftool_bin: str | None = None, ffmpeg_bin: str | None = None,
+) -> dict:
+    # Auto-detect tool paths if not explicitly provided
+    exiftool_bin = exiftool_bin or find_exiftool()
+    ffmpeg_bin = ffmpeg_bin or find_ffmpeg()
+    log.info("exiftool: %s", exiftool_bin)
+    log.info("ffmpeg: %s", ffmpeg_bin)
+
     patched_dir = root / "data" / "work" / "patched"
     patched_dir.mkdir(parents=True, exist_ok=True)
     conn = connect(db_path)
     ok = 0
     fail = 0
+    verified = 0
     try:
         rows = conn.execute(
             "SELECT id, content_id, ext, extracted_path, expected_taken_epoch, expected_lat, expected_lng FROM media_items WHERE patch_status='READY'"
@@ -224,22 +306,39 @@ def cmd_patch(root: Path, db_path: Path, exiftool_bin: str = "exiftool", ffmpeg_
             dst = patched_dir / f"{r['content_id']}.{r['ext']}"
             shutil.copy2(src, dst)
             err = ""
-            if r["ext"] in {"jpg", "jpeg", "heic", "png"}:
+            is_image = r["ext"] in {"jpg", "jpeg", "heic", "png"}
+
+            if is_image:
+                # ── Image patch via exiftool ──
                 cmd = [exiftool_bin, "-overwrite_original"]
                 if r["expected_taken_epoch"]:
                     ts = datetime.fromtimestamp(r["expected_taken_epoch"], tz=timezone.utc).strftime("%Y:%m:%d %H:%M:%S")
                     cmd += [f"-DateTimeOriginal={ts}"]
                 if r["expected_lat"] is not None and r["expected_lng"] is not None:
-                    cmd += [f"-GPSLatitude={r['expected_lat']}", f"-GPSLongitude={r['expected_lng']}"]
+                    lat, lng = r["expected_lat"], r["expected_lng"]
+                    cmd += [
+                        f"-GPSLatitude={abs(lat)}",
+                        f"-GPSLatitudeRef={'N' if lat >= 0 else 'S'}",
+                        f"-GPSLongitude={abs(lng)}",
+                        f"-GPSLongitudeRef={'E' if lng >= 0 else 'W'}",
+                    ]
                 cmd += [str(dst)]
                 rc, _, stderr = _run(cmd)
                 if rc != 0:
                     err = stderr
             else:
+                # ── Video patch via ffmpeg ──
                 tmp = dst.with_suffix(".tmp" + dst.suffix)
-                meta = []
+                meta: list[tuple[str, str]] = []
                 if r["expected_taken_epoch"]:
                     meta.append(("creation_time", datetime.fromtimestamp(r["expected_taken_epoch"], tz=timezone.utc).isoformat()))
+                if r["expected_lat"] is not None and r["expected_lng"] is not None:
+                    lat, lng = r["expected_lat"], r["expected_lng"]
+                    sign_lat = "+" if lat >= 0 else ""
+                    sign_lng = "+" if lng >= 0 else ""
+                    location_str = f"{sign_lat}{lat}{sign_lng}{lng}/"
+                    meta.append(("location", location_str))
+                    meta.append(("location-eng", location_str))
                 cmd = [ffmpeg_bin, "-y", "-i", str(dst)]
                 for k, v in meta:
                     cmd += ["-metadata", f"{k}={v}"]
@@ -251,6 +350,17 @@ def cmd_patch(root: Path, db_path: Path, exiftool_bin: str = "exiftool", ffmpeg_
                     err = stderr
                     if tmp.exists():
                         tmp.unlink()
+
+            # ── Post-patch verification (images only; video metadata is harder to read back) ──
+            if not err and is_image:
+                verify_err = _verify_patch(
+                    exiftool_bin, dst,
+                    r["expected_taken_epoch"], r["expected_lat"], r["expected_lng"],
+                )
+                if verify_err:
+                    err = f"verify-failed: {verify_err}"
+                else:
+                    verified += 1
 
             if err:
                 conn.execute(
@@ -267,7 +377,7 @@ def cmd_patch(root: Path, db_path: Path, exiftool_bin: str = "exiftool", ffmpeg_
         conn.commit()
     finally:
         conn.close()
-    return {"patched": ok, "failed": fail}
+    return {"patched": ok, "failed": fail, "verified": verified}
 
 
 def _next_batch_id(conn: sqlite3.Connection) -> str:

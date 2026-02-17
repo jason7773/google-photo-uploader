@@ -64,7 +64,7 @@ def reconcile_cmd(root: Path = typer.Option(None), db: Path = typer.Option(None)
 
 
 @app.command("patch")
-def patch_cmd(root: Path = typer.Option(None), db: Path = typer.Option(None), exiftool_bin: str = typer.Option("exiftool"), ffmpeg_bin: str = typer.Option("ffmpeg")):
+def patch_cmd(root: Path = typer.Option(None), db: Path = typer.Option(None), exiftool_bin: str = typer.Option(None), ffmpeg_bin: str = typer.Option(None)):
     r = _root(root)
     d = _db(r, db)
     _run(lambda: cmd_patch(r, d, exiftool_bin=exiftool_bin, ffmpeg_bin=ffmpeg_bin))
