@@ -301,6 +301,21 @@ function makeBatch() {
     api('make-batch', { max_files: maxFiles, max_bytes: maxBytes });
 }
 
+function cleanDuplicates() {
+    if (!confirm('確定要清除所有重複檔案嗎？\n這將會永久刪除被標記為 duplicates 的實體檔案。')) return;
+
+    addLog('INFO', '⏳ 正在清理重複檔案...');
+    api('clean-duplicates', {})
+        .then(data => {
+            if (data.ok) {
+                const s = data.stats;
+                addLog('INFO', `✅ 清理完成！刪除 ${s.deleted_count} 個檔案，釋放 ${s.space_freed_mb.toFixed(2)} MB 空間`);
+            } else {
+                addLog('ERROR', '清理失敗: ' + data.error);
+            }
+        });
+}
+
 function batchAction(action, batchId) {
     if (action === 'push') {
         const devicePath = '/sdcard/DCIM/Camera'; // defaulting to what user wants

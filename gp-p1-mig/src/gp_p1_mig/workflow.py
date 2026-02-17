@@ -702,6 +702,36 @@ def cmd_purge(root: Path, db_path: Path, batch_id: str, purge_patched: bool = Tr
     }
 
 
+def cmd_clean_duplicates(db_path: Path) -> dict:
+    """Clean up duplicate files recorded in the database."""
+    with transaction(db_path) as conn:
+        rows = conn.execute("SELECT id, dup_path FROM duplicates").fetchall()
+        deleted_count = 0
+        space_freed = 0
+        
+        for row in rows:
+            path = Path(row['dup_path'])
+            if path.exists():
+                try:
+                    size = path.stat().st_size
+                    path.unlink()
+                    deleted_count += 1
+                    space_freed += size
+                    
+                    # Try to clean up sidecar
+                    sidecar = path.with_name(path.name + ".json")
+                    if sidecar.exists():
+                        sidecar.unlink()
+                    sidecar2 = path.with_name(path.name + ".supplemental-metadata.json")
+                    if sidecar2.exists():
+                        sidecar2.unlink()
+                except Exception:
+                    pass
+    
+    log.info("已清理重複檔案: count=%d, size=%.2f MB", deleted_count, space_freed / (1024*1024))
+    return {"deleted_count": deleted_count, "space_freed_mb": space_freed / (1024*1024)}
+
+
 def cmd_retry_failed(
     root: Path, db_path: Path,
     exiftool_bin: str | None = None, ffmpeg_bin: str | None = None,
