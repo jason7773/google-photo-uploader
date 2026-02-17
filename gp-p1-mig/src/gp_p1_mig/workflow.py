@@ -16,7 +16,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Iterable
 
-from .db import connect, init_db
+from .db import connect, init_db, transaction
 from .tools import find_exiftool, find_ffmpeg, verify_tools
 
 log = logging.getLogger(__name__)
@@ -82,11 +82,10 @@ def cmd_ingest(root: Path, db_path: Path, zip_path: Path, run_id: str | None = N
                 raise MigError(f"Zip path traversal detected: {member}")
         zf.extractall(extract_root)
 
-    conn = connect(db_path)
     ingested = 0
     duplicates = 0
     scanned = 0
-    try:
+    with transaction(db_path) as conn:
         conn.execute(
             "INSERT INTO ingest_runs(run_id, source_zip, extracted_root, status) VALUES (?, ?, ?, 'DONE')",
             (run_id, str(zip_path), str(extract_root)),
@@ -125,9 +124,6 @@ def cmd_ingest(root: Path, db_path: Path, zip_path: Path, run_id: str | None = N
                 ),
             )
             ingested += 1
-        conn.commit()
-    finally:
-        conn.close()
 
     return {"run_id": run_id, "extract_root": str(extract_root), "scanned": scanned, "ingested": ingested, "duplicates": duplicates}
 
@@ -165,10 +161,9 @@ def _parse_sidecar(sidecar: Path) -> tuple[int | None, float | None, float | Non
 
 
 def cmd_reconcile(db_path: Path) -> dict:
-    conn = connect(db_path)
     matched = 0
     parsed = 0
-    try:
+    with transaction(db_path) as conn:
         rows = conn.execute("SELECT id, extracted_path, sidecar_path, has_sidecar FROM media_items").fetchall()
         by_dir: dict[str, list[Path]] = {}
         for r in rows:
@@ -211,9 +206,6 @@ def cmd_reconcile(db_path: Path) -> dict:
                     (ts, lat, lng, r["id"]),
                 )
                 parsed += 1
-        conn.commit()
-    finally:
-        conn.close()
     return {"matched_sidecar": matched, "parsed": parsed}
 
 
@@ -293,11 +285,10 @@ def cmd_patch(
 
     patched_dir = root / "data" / "work" / "patched"
     patched_dir.mkdir(parents=True, exist_ok=True)
-    conn = connect(db_path)
     ok = 0
     fail = 0
     verified = 0
-    try:
+    with transaction(db_path) as conn:
         rows = conn.execute(
             "SELECT id, content_id, ext, extracted_path, expected_taken_epoch, expected_lat, expected_lng FROM media_items WHERE patch_status='READY'"
         ).fetchall()
@@ -374,24 +365,22 @@ def cmd_patch(
                     (str(dst), r["id"]),
                 )
                 ok += 1
-        conn.commit()
-    finally:
-        conn.close()
     return {"patched": ok, "failed": fail, "verified": verified}
 
 
 def _next_batch_id(conn: sqlite3.Connection) -> str:
-    row = conn.execute("SELECT COUNT(*) AS c FROM batches").fetchone()
-    return f"B{int(row['c']) + 1:04d}"
+    row = conn.execute("SELECT batch_id FROM batches ORDER BY batch_id DESC LIMIT 1").fetchone()
+    if row:
+        return f"B{int(row['batch_id'][1:]) + 1:04d}"
+    return "B0001"
 
 
 def cmd_make_batch(root: Path, db_path: Path, max_bytes: int, max_files: int) -> dict:
     batches_root = root / "data" / "work" / "batches"
     batches_root.mkdir(parents=True, exist_ok=True)
-    conn = connect(db_path)
-    selected = []
+    selected: list[tuple[str, Path, int]] = []
     total_bytes = 0
-    try:
+    with transaction(db_path) as conn:
         rows = conn.execute(
             "SELECT content_id, patched_path FROM media_items WHERE patch_status='PATCHED' AND batch_id IS NULL ORDER BY created_at"
         ).fetchall()
@@ -446,16 +435,12 @@ def cmd_make_batch(root: Path, db_path: Path, max_bytes: int, max_files: int) ->
             ),
             encoding="utf-8",
         )
-        conn.commit()
-    finally:
-        conn.close()
 
     return {"batch_id": batch_id, "total_files": len(selected), "total_bytes": total_bytes}
 
 
 def cmd_push(root: Path, db_path: Path, batch_id: str, device_path: str, adb_bin: str = "adb") -> dict:
-    conn = connect(db_path)
-    try:
+    with transaction(db_path) as conn:
         row = conn.execute("SELECT * FROM batches WHERE batch_id=?", (batch_id,)).fetchone()
         if not row:
             raise MigError(f"batch not found: {batch_id}")
@@ -469,17 +454,13 @@ def cmd_push(root: Path, db_path: Path, batch_id: str, device_path: str, adb_bin
             "UPDATE batches SET pushed_at=?, status='PUSHED', device_target_path=? WHERE batch_id=?",
             (now_iso(), device_path, batch_id),
         )
-        conn.commit()
-    finally:
-        conn.close()
     return {"batch_id": batch_id, "device_path": device_path}
 
 
 def cmd_export_verify(root: Path, db_path: Path, batch_id: str, sample_size: int = 30) -> dict:
-    conn = connect(db_path)
     exports = root / "data" / "exports"
     exports.mkdir(parents=True, exist_ok=True)
-    try:
+    with transaction(db_path) as conn:
         items = conn.execute(
             "SELECT bi.content_id, bi.file_name, bi.file_size, m.expected_taken_epoch FROM batch_items bi JOIN media_items m ON m.content_id=bi.content_id WHERE bi.batch_id=?",
             (batch_id,),
@@ -502,8 +483,6 @@ def cmd_export_verify(root: Path, db_path: Path, batch_id: str, sample_size: int
             w.writerow(["batch_id", "content_id", "file_name", "file_size", "expected_taken_epoch", "result", "note"])
             for it in pick:
                 w.writerow([batch_id, it["content_id"], it["file_name"], it["file_size"], it["expected_taken_epoch"], "", ""])
-    finally:
-        conn.close()
     return {"checklist": str(checklist), "samples": str(samples), "sample_count": min(sample_size, len(items))}
 
 
@@ -518,22 +497,17 @@ def cmd_import_verify(db_path: Path, batch_id: str, result_csv: Path) -> dict:
             if r.get("result", "").strip().lower() not in {"ok", "pass", "passed", ""}:
                 passed = False
 
-    conn = connect(db_path)
-    try:
+    with transaction(db_path) as conn:
         if passed:
             conn.execute("UPDATE batches SET status='VERIFIED', verified_at=? WHERE batch_id=?", (now_iso(), batch_id))
             status = "VERIFIED"
         else:
             status = "PUSHED"
-        conn.commit()
-    finally:
-        conn.close()
     return {"batch_id": batch_id, "status": status, "rows": len(rows)}
 
 
 def cmd_purge(root: Path, db_path: Path, batch_id: str, purge_patched: bool = False) -> dict:
-    conn = connect(db_path)
-    try:
+    with transaction(db_path) as conn:
         row = conn.execute("SELECT status, local_batch_path FROM batches WHERE batch_id=?", (batch_id,)).fetchone()
         if not row:
             raise MigError(f"batch not found: {batch_id}")
@@ -548,14 +522,12 @@ def cmd_purge(root: Path, db_path: Path, batch_id: str, purge_patched: bool = Fa
         if purge_patched:
             items = conn.execute("SELECT patched_path FROM media_items WHERE batch_id=?", (batch_id,)).fetchall()
             for it in items:
-                p = Path(it["patched_path"])
-                if p.exists():
-                    p.unlink()
-                    removed_patched += 1
+                if it["patched_path"]:
+                    p = Path(it["patched_path"])
+                    if p.exists():
+                        p.unlink()
+                        removed_patched += 1
 
         conn.execute("UPDATE batches SET status='PURGED', purged_at=? WHERE batch_id=?", (now_iso(), batch_id))
-        conn.commit()
-    finally:
-        conn.close()
 
     return {"batch_id": batch_id, "purged_files_dir": str(files_dir), "removed_patched": removed_patched}

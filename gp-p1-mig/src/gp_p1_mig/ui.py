@@ -5,7 +5,11 @@ from pathlib import Path
 import tkinter as tk
 from tkinter import filedialog, messagebox, ttk
 
-from .workflow import cmd_ingest, cmd_init, cmd_reconcile, cmd_patch, cmd_make_batch, cmd_export_verify
+from .workflow import (
+    cmd_ingest, cmd_init, cmd_reconcile, cmd_patch,
+    cmd_make_batch, cmd_export_verify, cmd_push,
+    cmd_import_verify, cmd_purge,
+)
 
 
 class App(tk.Tk):
@@ -17,10 +21,12 @@ class App(tk.Tk):
         self.root_var = tk.StringVar(value=str(Path.cwd()))
         self.db_var = tk.StringVar(value=str(Path.cwd() / "data" / "state" / "state.db"))
         self.zip_var = tk.StringVar()
+        self.batch_var = tk.StringVar(value="B0001")
 
         frm = ttk.Frame(self, padding=10)
         frm.pack(fill=tk.BOTH, expand=True)
 
+        # ── Path inputs ──
         ttk.Label(frm, text="Repo root").grid(row=0, column=0, sticky="w")
         ttk.Entry(frm, textvariable=self.root_var, width=80).grid(row=0, column=1, sticky="ew")
 
@@ -31,19 +37,32 @@ class App(tk.Tk):
         ttk.Entry(frm, textvariable=self.zip_var, width=60).grid(row=2, column=1, sticky="w")
         ttk.Button(frm, text="Browse", command=self.pick_zip).grid(row=2, column=2)
 
-        btns = ttk.Frame(frm)
-        btns.grid(row=3, column=0, columnspan=3, pady=8, sticky="w")
-        ttk.Button(btns, text="Init", command=lambda: self.run_bg("init", self.do_init)).pack(side=tk.LEFT, padx=3)
-        ttk.Button(btns, text="Ingest", command=lambda: self.run_bg("ingest", self.do_ingest)).pack(side=tk.LEFT, padx=3)
-        ttk.Button(btns, text="Reconcile", command=lambda: self.run_bg("reconcile", self.do_reconcile)).pack(side=tk.LEFT, padx=3)
-        ttk.Button(btns, text="Patch", command=lambda: self.run_bg("patch", self.do_patch)).pack(side=tk.LEFT, padx=3)
-        ttk.Button(btns, text="Make batch", command=lambda: self.run_bg("make-batch", self.do_make_batch)).pack(side=tk.LEFT, padx=3)
-        ttk.Button(btns, text="Export verify", command=lambda: self.run_bg("export-verify", self.do_export_verify)).pack(side=tk.LEFT, padx=3)
+        ttk.Label(frm, text="Batch ID").grid(row=3, column=0, sticky="w")
+        ttk.Entry(frm, textvariable=self.batch_var, width=20).grid(row=3, column=1, sticky="w")
 
+        # ── Pipeline buttons ──
+        btns = ttk.Frame(frm)
+        btns.grid(row=4, column=0, columnspan=3, pady=8, sticky="w")
+        for label, handler in [
+            ("Init", self.do_init),
+            ("Ingest", self.do_ingest),
+            ("Reconcile", self.do_reconcile),
+            ("Patch", self.do_patch),
+            ("Make batch", self.do_make_batch),
+            ("Push", self.do_push),
+            ("Export verify", self.do_export_verify),
+            ("Import verify", self.do_import_verify),
+            ("Purge", self.do_purge),
+        ]:
+            ttk.Button(btns, text=label, command=lambda n=label, f=handler: self.run_bg(n, f)).pack(side=tk.LEFT, padx=3)
+
+        # ── Log area ──
         self.log = tk.Text(frm, height=25)
-        self.log.grid(row=4, column=0, columnspan=3, sticky="nsew")
+        self.log.grid(row=5, column=0, columnspan=3, sticky="nsew")
         frm.columnconfigure(1, weight=1)
-        frm.rowconfigure(4, weight=1)
+        frm.rowconfigure(5, weight=1)
+
+    # ── Helpers ──
 
     def pick_zip(self):
         p = filedialog.askopenfilename(filetypes=[("zip", "*.zip")])
@@ -53,18 +72,24 @@ class App(tk.Tk):
     def _paths(self):
         return Path(self.root_var.get()).resolve(), Path(self.db_var.get()).resolve()
 
+    def _log(self, msg: str) -> None:
+        """Thread-safe log append — always dispatched on the main thread."""
+        self.after(0, lambda: self.log.insert(tk.END, msg))
+
     def run_bg(self, name, fn):
-        self.log.insert(tk.END, f"\n== {name} ==\n")
+        self._log(f"\n== {name} ==\n")
 
         def _t():
             try:
                 out = fn()
-                self.log.insert(tk.END, f"OK: {out}\n")
+                self._log(f"OK: {out}\n")
             except Exception as e:
-                self.log.insert(tk.END, f"ERROR: {e}\n")
-                messagebox.showerror("Error", str(e))
+                self._log(f"ERROR: {e}\n")
+                self.after(0, lambda: messagebox.showerror("Error", str(e)))
 
         threading.Thread(target=_t, daemon=True).start()
+
+    # ── Workflow handlers ──
 
     def do_init(self):
         r, d = self._paths()
@@ -86,9 +111,24 @@ class App(tk.Tk):
         r, d = self._paths()
         return cmd_make_batch(r, d, max_bytes=2 * 1024 * 1024 * 1024, max_files=500)
 
+    def do_push(self):
+        r, d = self._paths()
+        return cmd_push(r, d, batch_id=self.batch_var.get(), device_path="/sdcard/DCIM/Camera")
+
     def do_export_verify(self):
         r, d = self._paths()
-        return cmd_export_verify(r, d, batch_id="B0001")
+        return cmd_export_verify(r, d, batch_id=self.batch_var.get())
+
+    def do_import_verify(self):
+        _, d = self._paths()
+        csv_path = filedialog.askopenfilename(filetypes=[("CSV", "*.csv")])
+        if not csv_path:
+            return "cancelled"
+        return cmd_import_verify(d, batch_id=self.batch_var.get(), result_csv=Path(csv_path))
+
+    def do_purge(self):
+        r, d = self._paths()
+        return cmd_purge(r, d, batch_id=self.batch_var.get(), purge_patched=True)
 
 
 def main():
