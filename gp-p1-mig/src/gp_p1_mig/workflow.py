@@ -66,8 +66,15 @@ def _sha256(path: Path) -> str:
 
 
 def _find_sidecar(media_path: Path) -> Path | None:
+    # Try standard .jpg.json format first
     p = media_path.with_name(media_path.name + ".json")
-    return p if p.exists() else None
+    if p.exists():
+        return p
+    # Try Google's newer .supplemental-metadata.json format
+    p2 = media_path.with_suffix(media_path.suffix + ".supplemental-metadata.json")
+    if p2.exists():
+        return p2
+    return None
 
 
 def cmd_ingest(
@@ -146,10 +153,13 @@ def cmd_ingest(
 
 def _normalize_stem(name: str) -> str:
     stem = Path(name).stem
+    # Strip Google's newer sidecar suffix
+    stem = re.sub(r"\.supplemental-metadata$", "", stem, flags=re.I)
     stem = re.sub(r"\.(jpg|jpeg|heic|png|mp4|mov)$", "", stem, flags=re.I)
     stem = re.sub(r"\(\d+\)$", "", stem)
     stem = re.sub(r"[-_ ]+", "", stem)
     return stem.lower()
+
 
 
 def _parse_sidecar(sidecar: Path) -> tuple[int | None, float | None, float | None]:
@@ -325,7 +335,7 @@ def cmd_patch(
 
             if is_image:
                 # ── Image patch via exiftool ──
-                cmd = [exiftool_bin, "-overwrite_original"]
+                cmd = [exiftool_bin, "-overwrite_original", "-m"]
                 if r["expected_taken_epoch"]:
                     ts = datetime.fromtimestamp(r["expected_taken_epoch"], tz=timezone.utc).strftime("%Y:%m:%d %H:%M:%S")
                     cmd += [f"-DateTimeOriginal={ts}"]
