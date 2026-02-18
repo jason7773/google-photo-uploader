@@ -122,24 +122,27 @@
       </div>
       <div class="card">
         <h2>所有批次</h2>
-        <table class="batch-table">
-          <thead>
-            <tr>
-              <th>Batch ID</th>
-              <th>狀態</th>
-              <th>檔案數</th>
-              <th>大小</th>
-              <th>建立時間</th>
-              <th>操作</th>
-            </tr>
-          </thead>
-          <tbody id="batchTableBody">
-            <tr>
-              <td colspan="6" class="empty">尚無批次</td>
-            </tr>
-          </tbody>
-        </table>
+        <div style="max-height: 280px; overflow-y: auto; border-radius: 6px;">
+          <table class="batch-table">
+            <thead>
+              <tr>
+                <th>Batch ID</th>
+                <th>狀態</th>
+                <th>檔案數</th>
+                <th>大小</th>
+                <th>建立時間</th>
+                <th>操作</th>
+              </tr>
+            </thead>
+            <tbody id="batchTableBody">
+              <tr>
+                <td colspan="6" class="empty">尚無批次</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
       </div>
+
     </section>
 
     <!-- ═══ Settings Tab ═══ -->

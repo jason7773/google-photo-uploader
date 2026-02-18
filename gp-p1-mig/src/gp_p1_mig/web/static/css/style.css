@@ -384,7 +384,6 @@ label { font-size: 13px; color: var(--text-muted); }
 }
 .step-arrow { color: var(--text-muted); font-size: 16px; margin-top: 18px; }
 
-/* ── Responsive ── */
 @media (max-width: 768px) {
   .sidebar { width: 60px; padding: 16px 0; }
   .logo-text, .nav-link span:not(.nav-icon) { display: none; }
@@ -395,3 +394,20 @@ label { font-size: 13px; color: var(--text-muted); }
   .help-nav { flex-direction: row; flex-wrap: wrap; position: static; }
   .sidebar-footer { display: none; }
 }
+
+/* ── Batch Table ── */
+.batch-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+.batch-table th,
+.batch-table td { padding: 8px 12px; text-align: left; border-bottom: 1px solid var(--border); }
+.batch-table thead th {
+  background: #141c2e;
+  color: var(--text-muted);
+  font-weight: 600;
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  position: sticky;
+  top: 0;
+  z-index: 2;
+}
+.batch-table tbody tr:hover { background: rgba(99,102,241,0.06); }

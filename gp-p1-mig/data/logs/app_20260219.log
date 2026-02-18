@@ -39,3 +39,145 @@
 2026-02-19 02:28:13,094 | INFO  | werkzeug | 127.0.0.1 - - [19/Feb/2026 02:28:13] "GET /api/state HTTP/1.1" 200 -
 2026-02-19 02:28:23,070 | INFO  | werkzeug | 127.0.0.1 - - [19/Feb/2026 02:28:23] "GET /api/state HTTP/1.1" 200 -
 2026-02-19 02:28:33,084 | INFO  | werkzeug | 127.0.0.1 - - [19/Feb/2026 02:28:33] "GET /api/state HTTP/1.1" 200 -
+2026-02-19 02:29:30,521 | INFO  | werkzeug | 127.0.0.1 - - [19/Feb/2026 02:29:30] "GET /api/state HTTP/1.1" 200 -
+2026-02-19 02:29:33,050 | INFO  | werkzeug | 127.0.0.1 - - [19/Feb/2026 02:29:33] "GET /api/state HTTP/1.1" 200 -
+2026-02-19 02:29:33,267 | INFO  | werkzeug | 127.0.0.1 - - [19/Feb/2026 02:29:33] "GET /api/state HTTP/1.1" 200 -
+2026-02-19 02:29:43,106 | INFO  | werkzeug | 127.0.0.1 - - [19/Feb/2026 02:29:43] "GET /api/state HTTP/1.1" 200 -
+2026-02-19 02:29:53,077 | INFO  | werkzeug | 127.0.0.1 - - [19/Feb/2026 02:29:53] "GET /api/state HTTP/1.1" 200 -
+2026-02-19 02:30:03,081 | INFO  | werkzeug | 127.0.0.1 - - [19/Feb/2026 02:30:03] "GET /api/state HTTP/1.1" 200 -
+2026-02-19 02:30:13,064 | INFO  | werkzeug | 127.0.0.1 - - [19/Feb/2026 02:30:13] "GET /api/state HTTP/1.1" 200 -
+2026-02-19 02:30:23,081 | INFO  | werkzeug | 127.0.0.1 - - [19/Feb/2026 02:30:23] "GET /api/state HTTP/1.1" 200 -
+2026-02-19 02:30:33,078 | INFO  | werkzeug | 127.0.0.1 - - [19/Feb/2026 02:30:33] "GET /api/state HTTP/1.1" 200 -
+2026-02-19 02:30:43,087 | INFO  | werkzeug | 127.0.0.1 - - [19/Feb/2026 02:30:43] "GET /api/state HTTP/1.1" 200 -
+2026-02-19 02:30:53,107 | INFO  | werkzeug | 127.0.0.1 - - [19/Feb/2026 02:30:53] "GET /api/state HTTP/1.1" 200 -
+2026-02-19 02:31:03,159 | INFO  | werkzeug | 127.0.0.1 - - [19/Feb/2026 02:31:03] "GET /api/state HTTP/1.1" 200 -
+2026-02-19 02:31:13,074 | INFO  | werkzeug | 127.0.0.1 - - [19/Feb/2026 02:31:13] "GET /api/state HTTP/1.1" 200 -
+2026-02-19 02:31:23,056 | INFO  | werkzeug | 127.0.0.1 - - [19/Feb/2026 02:31:23] "GET /api/state HTTP/1.1" 200 -
+2026-02-19 02:31:33,089 | INFO  | werkzeug | 127.0.0.1 - - [19/Feb/2026 02:31:33] "GET /api/state HTTP/1.1" 200 -
+2026-02-19 02:31:43,090 | INFO  | werkzeug | 127.0.0.1 - - [19/Feb/2026 02:31:43] "GET /api/state HTTP/1.1" 200 -
+2026-02-19 02:31:47,288 | INFO  | werkzeug | 127.0.0.1 - - [19/Feb/2026 02:31:47] "GET / HTTP/1.1" 200 -
+2026-02-19 02:31:47,300 | INFO  | werkzeug | 127.0.0.1 - - [19/Feb/2026 02:31:47] "GET /socket.io/?EIO=4&transport=websocket&sid=15bdTHzEqbYXYNNiAAAE HTTP/1.1" 200 -
+2026-02-19 02:31:47,331 | INFO  | werkzeug | 127.0.0.1 - - [19/Feb/2026 02:31:47] "[36mGET /static/css/style.css HTTP/1.1[0m" 304 -
+2026-02-19 02:31:47,341 | INFO  | werkzeug | 127.0.0.1 - - [19/Feb/2026 02:31:47] "[36mGET /static/js/app.js HTTP/1.1[0m" 304 -
+2026-02-19 02:31:47,415 | INFO  | werkzeug | 127.0.0.1 - - [19/Feb/2026 02:31:47] "GET /socket.io/?EIO=4&transport=polling&t=Pno1SUa HTTP/1.1" 200 -
+2026-02-19 02:31:47,446 | INFO  | gp_p1_mig.web.app | 瀏覽器已連線
+2026-02-19 02:31:47,461 | INFO  | werkzeug | 127.0.0.1 - - [19/Feb/2026 02:31:47] "POST /socket.io/?EIO=4&transport=polling&t=Pno1SVU&sid=RlwEdIuDXx2hB886AAAG HTTP/1.1" 200 -
+2026-02-19 02:31:47,485 | INFO  | werkzeug | 127.0.0.1 - - [19/Feb/2026 02:31:47] "GET /socket.io/?EIO=4&transport=polling&t=Pno1SVU.0&sid=RlwEdIuDXx2hB886AAAG HTTP/1.1" 200 -
+2026-02-19 02:31:47,834 | INFO  | werkzeug | 127.0.0.1 - - [19/Feb/2026 02:31:47] "GET /api/state HTTP/1.1" 200 -
+2026-02-19 02:31:48,119 | INFO  | werkzeug | 127.0.0.1 - - [19/Feb/2026 02:31:48] "GET /api/state HTTP/1.1" 200 -
+2026-02-19 02:31:49,056 | INFO  | werkzeug | 127.0.0.1 - - [19/Feb/2026 02:31:49] "GET /api/state HTTP/1.1" 200 -
+2026-02-19 02:31:52,963 | INFO  | werkzeug | 127.0.0.1 - - [19/Feb/2026 02:31:52] "GET /api/state HTTP/1.1" 200 -
+2026-02-19 02:31:54,091 | INFO  | werkzeug | 127.0.0.1 - - [19/Feb/2026 02:31:54] "GET /api/state HTTP/1.1" 200 -
+2026-02-19 02:31:56,514 | INFO  | werkzeug | 127.0.0.1 - - [19/Feb/2026 02:31:56] "GET /api/state HTTP/1.1" 200 -
+2026-02-19 02:31:57,651 | INFO  | werkzeug | 127.0.0.1 - - [19/Feb/2026 02:31:57] "GET /api/state HTTP/1.1" 200 -
+2026-02-19 02:31:58,922 | INFO  | werkzeug | 127.0.0.1 - - [19/Feb/2026 02:31:58] "GET / HTTP/1.1" 200 -
+2026-02-19 02:31:58,930 | INFO  | werkzeug | 127.0.0.1 - - [19/Feb/2026 02:31:58] "GET /socket.io/?EIO=4&transport=websocket&sid=RlwEdIuDXx2hB886AAAG HTTP/1.1" 200 -
+2026-02-19 02:31:58,956 | INFO  | werkzeug | 127.0.0.1 - - [19/Feb/2026 02:31:58] "[36mGET /static/css/style.css HTTP/1.1[0m" 304 -
+2026-02-19 02:31:58,966 | INFO  | werkzeug | 127.0.0.1 - - [19/Feb/2026 02:31:58] "[36mGET /static/js/app.js HTTP/1.1[0m" 304 -
+2026-02-19 02:31:58,981 | INFO  | werkzeug | 127.0.0.1 - - [19/Feb/2026 02:31:58] "GET /socket.io/?EIO=4&transport=polling&t=Pno1VK0 HTTP/1.1" 200 -
+2026-02-19 02:31:59,046 | INFO  | gp_p1_mig.web.app | 瀏覽器已連線
+2026-02-19 02:31:59,048 | INFO  | werkzeug | 127.0.0.1 - - [19/Feb/2026 02:31:59] "POST /socket.io/?EIO=4&transport=polling&t=Pno1VL2&sid=IkLRQO0MjNfqbGV0AAAI HTTP/1.1" 200 -
+2026-02-19 02:31:59,052 | INFO  | werkzeug | 127.0.0.1 - - [19/Feb/2026 02:31:59] "GET /socket.io/?EIO=4&transport=polling&t=Pno1VL3&sid=IkLRQO0MjNfqbGV0AAAI HTTP/1.1" 200 -
+2026-02-19 02:31:59,276 | INFO  | werkzeug | 127.0.0.1 - - [19/Feb/2026 02:31:59] "GET /api/state HTTP/1.1" 200 -
+2026-02-19 02:31:59,550 | INFO  | werkzeug | 127.0.0.1 - - [19/Feb/2026 02:31:59] "GET /api/state HTTP/1.1" 200 -
+2026-02-19 02:31:59,805 | INFO  | werkzeug | 127.0.0.1 - - [19/Feb/2026 02:31:59] "GET / HTTP/1.1" 200 -
+2026-02-19 02:31:59,811 | INFO  | werkzeug | 127.0.0.1 - - [19/Feb/2026 02:31:59] "GET /socket.io/?EIO=4&transport=websocket&sid=IkLRQO0MjNfqbGV0AAAI HTTP/1.1" 200 -
+2026-02-19 02:31:59,840 | INFO  | werkzeug | 127.0.0.1 - - [19/Feb/2026 02:31:59] "[36mGET /static/css/style.css HTTP/1.1[0m" 304 -
+2026-02-19 02:31:59,850 | INFO  | werkzeug | 127.0.0.1 - - [19/Feb/2026 02:31:59] "[36mGET /static/js/app.js HTTP/1.1[0m" 304 -
+2026-02-19 02:31:59,869 | INFO  | werkzeug | 127.0.0.1 - - [19/Feb/2026 02:31:59] "GET /socket.io/?EIO=4&transport=polling&t=Pno1VXr HTTP/1.1" 200 -
+2026-02-19 02:31:59,938 | INFO  | gp_p1_mig.web.app | 瀏覽器已連線
+2026-02-19 02:31:59,942 | INFO  | werkzeug | 127.0.0.1 - - [19/Feb/2026 02:31:59] "POST /socket.io/?EIO=4&transport=polling&t=Pno1VYz&sid=-a0XuGC4yRw9VTJRAAAK HTTP/1.1" 200 -
+2026-02-19 02:31:59,944 | INFO  | werkzeug | 127.0.0.1 - - [19/Feb/2026 02:31:59] "GET /socket.io/?EIO=4&transport=polling&t=Pno1VY-&sid=-a0XuGC4yRw9VTJRAAAK HTTP/1.1" 200 -
+2026-02-19 02:32:00,203 | INFO  | werkzeug | 127.0.0.1 - - [19/Feb/2026 02:32:00] "GET /api/state HTTP/1.1" 200 -
+2026-02-19 02:32:00,505 | INFO  | werkzeug | 127.0.0.1 - - [19/Feb/2026 02:32:00] "GET /api/state HTTP/1.1" 200 -
+2026-02-19 02:32:01,007 | INFO  | werkzeug | 127.0.0.1 - - [19/Feb/2026 02:32:01] "GET /api/state HTTP/1.1" 200 -
+2026-02-19 02:32:11,080 | INFO  | werkzeug | 127.0.0.1 - - [19/Feb/2026 02:32:11] "GET /api/state HTTP/1.1" 200 -
+2026-02-19 02:32:21,075 | INFO  | werkzeug | 127.0.0.1 - - [19/Feb/2026 02:32:21] "GET /api/state HTTP/1.1" 200 -
+2026-02-19 02:32:31,075 | INFO  | werkzeug | 127.0.0.1 - - [19/Feb/2026 02:32:31] "GET /api/state HTTP/1.1" 200 -
+2026-02-19 02:32:41,067 | INFO  | werkzeug | 127.0.0.1 - - [19/Feb/2026 02:32:41] "GET /api/state HTTP/1.1" 200 -
+2026-02-19 02:32:51,087 | INFO  | werkzeug | 127.0.0.1 - - [19/Feb/2026 02:32:51] "GET /api/state HTTP/1.1" 200 -
+2026-02-19 02:33:01,091 | INFO  | werkzeug | 127.0.0.1 - - [19/Feb/2026 02:33:01] "GET /api/state HTTP/1.1" 200 -
+2026-02-19 02:33:11,062 | INFO  | werkzeug | 127.0.0.1 - - [19/Feb/2026 02:33:11] "GET /api/state HTTP/1.1" 200 -
+2026-02-19 02:33:21,056 | INFO  | werkzeug | 127.0.0.1 - - [19/Feb/2026 02:33:21] "GET /api/state HTTP/1.1" 200 -
+2026-02-19 02:33:26,294 | INFO  | werkzeug | 127.0.0.1 - - [19/Feb/2026 02:33:26] "GET / HTTP/1.1" 200 -
+2026-02-19 02:33:26,301 | INFO  | werkzeug | 127.0.0.1 - - [19/Feb/2026 02:33:26] "GET /socket.io/?EIO=4&transport=websocket&sid=-a0XuGC4yRw9VTJRAAAK HTTP/1.1" 200 -
+2026-02-19 02:33:26,328 | INFO  | werkzeug | 127.0.0.1 - - [19/Feb/2026 02:33:26] "[36mGET /static/css/style.css HTTP/1.1[0m" 304 -
+2026-02-19 02:33:26,331 | INFO  | werkzeug | 127.0.0.1 - - [19/Feb/2026 02:33:26] "[36mGET /static/js/app.js HTTP/1.1[0m" 304 -
+2026-02-19 02:33:26,388 | INFO  | werkzeug | 127.0.0.1 - - [19/Feb/2026 02:33:26] "GET /socket.io/?EIO=4&transport=polling&t=Pno1qfC HTTP/1.1" 200 -
+2026-02-19 02:33:26,407 | INFO  | gp_p1_mig.web.app | 瀏覽器已連線
+2026-02-19 02:33:26,410 | INFO  | werkzeug | 127.0.0.1 - - [19/Feb/2026 02:33:26] "POST /socket.io/?EIO=4&transport=polling&t=Pno1qg2&sid=5ilTL4Q-b5iYyCQZAAAM HTTP/1.1" 200 -
+2026-02-19 02:33:26,411 | INFO  | werkzeug | 127.0.0.1 - - [19/Feb/2026 02:33:26] "GET /socket.io/?EIO=4&transport=polling&t=Pno1qg3&sid=5ilTL4Q-b5iYyCQZAAAM HTTP/1.1" 200 -
+2026-02-19 02:33:26,662 | INFO  | werkzeug | 127.0.0.1 - - [19/Feb/2026 02:33:26] "GET /api/state HTTP/1.1" 200 -
+2026-02-19 02:33:26,929 | INFO  | werkzeug | 127.0.0.1 - - [19/Feb/2026 02:33:26] "GET /api/state HTTP/1.1" 200 -
+2026-02-19 02:33:27,935 | INFO  | werkzeug | 127.0.0.1 - - [19/Feb/2026 02:33:27] "GET /api/state HTTP/1.1" 200 -
+2026-02-19 02:33:36,597 | INFO  | werkzeug | 127.0.0.1 - - [19/Feb/2026 02:33:36] "GET /api/state HTTP/1.1" 200 -
+2026-02-19 02:33:39,496 | INFO  | werkzeug | 127.0.0.1 - - [19/Feb/2026 02:33:39] "GET /api/state HTTP/1.1" 200 -
+2026-02-19 02:33:41,478 | INFO  | werkzeug | 127.0.0.1 - - [19/Feb/2026 02:33:41] "GET /api/state HTTP/1.1" 200 -
+2026-02-19 02:33:43,036 | INFO  | werkzeug | 127.0.0.1 - - [19/Feb/2026 02:33:43] "GET /api/state HTTP/1.1" 200 -
+2026-02-19 02:33:46,620 | INFO  | werkzeug | 127.0.0.1 - - [19/Feb/2026 02:33:46] "GET /api/state HTTP/1.1" 200 -
+2026-02-19 02:33:57,062 | INFO  | werkzeug | 127.0.0.1 - - [19/Feb/2026 02:33:57] "GET /api/state HTTP/1.1" 200 -
+2026-02-19 02:34:07,068 | INFO  | werkzeug | 127.0.0.1 - - [19/Feb/2026 02:34:07] "GET /api/state HTTP/1.1" 200 -
+2026-02-19 02:34:17,063 | INFO  | werkzeug | 127.0.0.1 - - [19/Feb/2026 02:34:17] "GET /api/state HTTP/1.1" 200 -
+2026-02-19 02:34:27,075 | INFO  | werkzeug | 127.0.0.1 - - [19/Feb/2026 02:34:27] "GET /api/state HTTP/1.1" 200 -
+2026-02-19 02:34:37,077 | INFO  | werkzeug | 127.0.0.1 - - [19/Feb/2026 02:34:37] "GET /api/state HTTP/1.1" 200 -
+2026-02-19 02:34:47,104 | INFO  | werkzeug | 127.0.0.1 - - [19/Feb/2026 02:34:47] "GET /api/state HTTP/1.1" 200 -
+2026-02-19 02:34:47,647 | INFO  | root | Log 檔案位置: C:\Users\jason\Documents\google photo uploader\gp-p1-mig\data\logs\app_20260219.log
+2026-02-19 02:34:48,154 | INFO  | werkzeug | [31m[1mWARNING: This is a development server. Do not use it in a production deployment. Use a production WSGI server instead.[0m
+ * Running on http://127.0.0.1:5000
+2026-02-19 02:34:48,155 | INFO  | werkzeug | [33mPress CTRL+C to quit[0m
+2026-02-19 02:34:49,862 | INFO  | werkzeug | 127.0.0.1 - - [19/Feb/2026 02:34:49] "GET /socket.io/?EIO=4&transport=polling&t=Pno2922 HTTP/1.1" 200 -
+2026-02-19 02:34:49,873 | INFO  | gp_p1_mig.web.app | 瀏覽器已連線
+2026-02-19 02:34:49,874 | INFO  | werkzeug | 127.0.0.1 - - [19/Feb/2026 02:34:49] "POST /socket.io/?EIO=4&transport=polling&t=Pno292E&sid=XAziOYvxvDmgidbNAAAA HTTP/1.1" 200 -
+2026-02-19 02:34:49,879 | INFO  | werkzeug | 127.0.0.1 - - [19/Feb/2026 02:34:49] "GET /socket.io/?EIO=4&transport=polling&t=Pno292J&sid=XAziOYvxvDmgidbNAAAA HTTP/1.1" 200 -
+2026-02-19 02:34:50,007 | INFO  | werkzeug | 127.0.0.1 - - [19/Feb/2026 02:34:50] "GET / HTTP/1.1" 200 -
+2026-02-19 02:34:50,129 | INFO  | werkzeug | 127.0.0.1 - - [19/Feb/2026 02:34:50] "[36mGET /static/css/style.css HTTP/1.1[0m" 304 -
+2026-02-19 02:34:50,132 | INFO  | werkzeug | 127.0.0.1 - - [19/Feb/2026 02:34:50] "[36mGET /static/js/app.js HTTP/1.1[0m" 304 -
+2026-02-19 02:34:50,161 | INFO  | werkzeug | 127.0.0.1 - - [19/Feb/2026 02:34:50] "GET /socket.io/?EIO=4&transport=polling&t=Pno296k HTTP/1.1" 200 -
+2026-02-19 02:34:50,258 | INFO  | werkzeug | 127.0.0.1 - - [19/Feb/2026 02:34:50] "GET /api/state HTTP/1.1" 200 -
+2026-02-19 02:34:50,266 | INFO  | gp_p1_mig.web.app | 瀏覽器已連線
+2026-02-19 02:34:50,268 | INFO  | werkzeug | 127.0.0.1 - - [19/Feb/2026 02:34:50] "POST /socket.io/?EIO=4&transport=polling&t=Pno298D&sid=Bp_YvYWSUHcWolCNAAAC HTTP/1.1" 200 -
+2026-02-19 02:34:50,274 | INFO  | werkzeug | 127.0.0.1 - - [19/Feb/2026 02:34:50] "GET /socket.io/?EIO=4&transport=polling&t=Pno298E&sid=Bp_YvYWSUHcWolCNAAAC HTTP/1.1" 200 -
+2026-02-19 02:34:50,301 | INFO  | werkzeug | 127.0.0.1 - - [19/Feb/2026 02:34:50] "GET /socket.io/?EIO=4&transport=polling&t=Pno298v&sid=Bp_YvYWSUHcWolCNAAAC HTTP/1.1" 200 -
+2026-02-19 02:34:50,583 | INFO  | werkzeug | 127.0.0.1 - - [19/Feb/2026 02:34:50] "GET /api/state HTTP/1.1" 200 -
+2026-02-19 02:34:50,858 | INFO  | werkzeug | 127.0.0.1 - - [19/Feb/2026 02:34:50] "GET /api/state HTTP/1.1" 200 -
+2026-02-19 02:34:53,394 | INFO  | werkzeug | 127.0.0.1 - - [19/Feb/2026 02:34:53] "GET /socket.io/?EIO=4&transport=websocket&sid=XAziOYvxvDmgidbNAAAA HTTP/1.1" 200 -
+2026-02-19 02:34:55,202 | INFO  | werkzeug | 127.0.0.1 - - [19/Feb/2026 02:34:55] "GET /api/state HTTP/1.1" 200 -
+2026-02-19 02:35:00,382 | INFO  | werkzeug | 127.0.0.1 - - [19/Feb/2026 02:35:00] "GET /api/state HTTP/1.1" 200 -
+2026-02-19 02:35:10,445 | INFO  | werkzeug | 127.0.0.1 - - [19/Feb/2026 02:35:10] "GET /api/state HTTP/1.1" 200 -
+2026-02-19 02:35:21,072 | INFO  | werkzeug | 127.0.0.1 - - [19/Feb/2026 02:35:21] "GET /api/state HTTP/1.1" 200 -
+2026-02-19 02:35:31,072 | INFO  | werkzeug | 127.0.0.1 - - [19/Feb/2026 02:35:31] "GET /api/state HTTP/1.1" 200 -
+2026-02-19 02:35:41,062 | INFO  | werkzeug | 127.0.0.1 - - [19/Feb/2026 02:35:41] "GET /api/state HTTP/1.1" 200 -
+2026-02-19 02:35:51,062 | INFO  | werkzeug | 127.0.0.1 - - [19/Feb/2026 02:35:51] "GET /api/state HTTP/1.1" 200 -
+2026-02-19 02:36:01,066 | INFO  | werkzeug | 127.0.0.1 - - [19/Feb/2026 02:36:01] "GET /api/state HTTP/1.1" 200 -
+2026-02-19 02:36:11,083 | INFO  | werkzeug | 127.0.0.1 - - [19/Feb/2026 02:36:11] "GET /api/state HTTP/1.1" 200 -
+2026-02-19 02:36:41,070 | INFO  | werkzeug | 127.0.0.1 - - [19/Feb/2026 02:36:41] "GET /api/state HTTP/1.1" 200 -
+2026-02-19 02:36:53,361 | INFO  | werkzeug | 127.0.0.1 - - [19/Feb/2026 02:36:53] "GET /api/state HTTP/1.1" 200 -
+2026-02-19 02:36:54,681 | INFO  | werkzeug | 127.0.0.1 - - [19/Feb/2026 02:36:54] "GET / HTTP/1.1" 200 -
+2026-02-19 02:36:54,689 | INFO  | werkzeug | 127.0.0.1 - - [19/Feb/2026 02:36:54] "GET /socket.io/?EIO=4&transport=websocket&sid=Bp_YvYWSUHcWolCNAAAC HTTP/1.1" 200 -
+2026-02-19 02:36:54,713 | INFO  | werkzeug | 127.0.0.1 - - [19/Feb/2026 02:36:54] "GET /static/css/style.css HTTP/1.1" 200 -
+2026-02-19 02:36:54,720 | INFO  | werkzeug | 127.0.0.1 - - [19/Feb/2026 02:36:54] "GET /static/js/app.js HTTP/1.1" 200 -
+2026-02-19 02:36:54,998 | INFO  | werkzeug | 127.0.0.1 - - [19/Feb/2026 02:36:54] "GET /socket.io/?EIO=4&transport=polling&t=Pno2dbG HTTP/1.1" 200 -
+2026-02-19 02:36:55,028 | INFO  | gp_p1_mig.web.app | 瀏覽器已連線
+2026-02-19 02:36:55,031 | INFO  | werkzeug | 127.0.0.1 - - [19/Feb/2026 02:36:55] "POST /socket.io/?EIO=4&transport=polling&t=Pno2dbl&sid=bpyJlr0ATGhc0QsXAAAE HTTP/1.1" 200 -
+2026-02-19 02:36:55,031 | INFO  | werkzeug | 127.0.0.1 - - [19/Feb/2026 02:36:55] "GET /socket.io/?EIO=4&transport=polling&t=Pno2dbn&sid=bpyJlr0ATGhc0QsXAAAE HTTP/1.1" 200 -
+2026-02-19 02:36:55,037 | INFO  | werkzeug | 127.0.0.1 - - [19/Feb/2026 02:36:55] "GET /socket.io/?EIO=4&transport=polling&t=Pno2db-&sid=bpyJlr0ATGhc0QsXAAAE HTTP/1.1" 200 -
+2026-02-19 02:36:55,103 | INFO  | werkzeug | 127.0.0.1 - - [19/Feb/2026 02:36:55] "[33mGET /favicon.ico HTTP/1.1[0m" 404 -
+2026-02-19 02:36:55,304 | INFO  | werkzeug | 127.0.0.1 - - [19/Feb/2026 02:36:55] "GET /api/state HTTP/1.1" 200 -
+2026-02-19 02:36:55,329 | INFO  | werkzeug | 127.0.0.1 - - [19/Feb/2026 02:36:55] "GET /api/state HTTP/1.1" 200 -
+2026-02-19 02:36:57,170 | INFO  | werkzeug | 127.0.0.1 - - [19/Feb/2026 02:36:57] "GET /api/state HTTP/1.1" 200 -
+2026-02-19 02:37:06,078 | INFO  | werkzeug | 127.0.0.1 - - [19/Feb/2026 02:37:06] "GET /api/state HTTP/1.1" 200 -
+2026-02-19 02:37:10,570 | INFO  | werkzeug | 127.0.0.1 - - [19/Feb/2026 02:37:10] "POST /api/mark-verified HTTP/1.1" 200 -
+2026-02-19 02:37:10,582 | INFO  | gp_p1_mig.workflow | 批次 B0014 已標記為 VERIFIED
+2026-02-19 02:37:10,851 | INFO  | werkzeug | 127.0.0.1 - - [19/Feb/2026 02:37:10] "GET /api/state HTTP/1.1" 200 -
+2026-02-19 02:37:11,364 | INFO  | werkzeug | 127.0.0.1 - - [19/Feb/2026 02:37:11] "GET /api/state HTTP/1.1" 200 -
+2026-02-19 02:37:12,582 | INFO  | werkzeug | 127.0.0.1 - - [19/Feb/2026 02:37:12] "POST /api/purge HTTP/1.1" 200 -
+2026-02-19 02:37:13,296 | INFO  | gp_p1_mig.workflow | 清除完成: batch=B0014, patched=200, extracted=200, sidecar=200
+2026-02-19 02:37:14,069 | INFO  | werkzeug | 127.0.0.1 - - [19/Feb/2026 02:37:14] "GET /api/state HTTP/1.1" 200 -
+2026-02-19 02:37:15,244 | INFO  | werkzeug | 127.0.0.1 - - [19/Feb/2026 02:37:15] "GET /api/state HTTP/1.1" 200 -
+2026-02-19 02:37:26,074 | INFO  | werkzeug | 127.0.0.1 - - [19/Feb/2026 02:37:26] "GET /api/state HTTP/1.1" 200 -
+2026-02-19 02:37:36,100 | INFO  | werkzeug | 127.0.0.1 - - [19/Feb/2026 02:37:36] "GET /api/state HTTP/1.1" 200 -
+2026-02-19 02:37:46,059 | INFO  | werkzeug | 127.0.0.1 - - [19/Feb/2026 02:37:46] "GET /api/state HTTP/1.1" 200 -
+2026-02-19 02:37:56,073 | INFO  | werkzeug | 127.0.0.1 - - [19/Feb/2026 02:37:56] "GET /api/state HTTP/1.1" 200 -
+2026-02-19 02:38:06,068 | INFO  | werkzeug | 127.0.0.1 - - [19/Feb/2026 02:38:06] "GET /api/state HTTP/1.1" 200 -
+2026-02-19 02:38:16,073 | INFO  | werkzeug | 127.0.0.1 - - [19/Feb/2026 02:38:16] "GET /api/state HTTP/1.1" 200 -
+2026-02-19 02:38:41,069 | INFO  | werkzeug | 127.0.0.1 - - [19/Feb/2026 02:38:41] "GET /api/state HTTP/1.1" 200 -

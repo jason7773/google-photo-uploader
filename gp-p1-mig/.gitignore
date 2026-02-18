@@ -13,3 +13,4 @@ data/state/
 data/exports/
 tools/*.exe
 tools/*.dll
+data/logs/
