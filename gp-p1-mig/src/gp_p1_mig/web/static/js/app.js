@@ -302,14 +302,15 @@ function makeBatch() {
 }
 
 function cleanDuplicates() {
-    if (!confirm('確定要清除所有重複檔案嗎？\n這將會永久刪除被標記為 duplicates 的實體檔案。')) return;
+    if (!confirm('確定要清理重複檔案嗎？\n\n安全機制：\n- 已在 media_items 中的檔案不會被移動\n- 檔案會移至 duplicates_trash 資料夾（不永久刪除）')) return;
 
     addLog('INFO', '⏳ 正在清理重複檔案...');
     api('clean-duplicates', {})
         .then(data => {
             if (data.ok) {
                 const s = data.stats;
-                addLog('INFO', `✅ 清理完成！刪除 ${s.deleted_count} 個檔案，釋放 ${s.space_freed_mb.toFixed(2)} MB 空間`);
+                addLog('INFO', '✅ 清理完成！移動 ' + s.moved_count + ' 個，跳過 ' + s.skipped_protected + ' 個受保護，釋放 ' + s.space_freed_mb + ' MB');
+                if (s.trash_dir) addLog('INFO', '📁 已移至: ' + s.trash_dir);
             } else {
                 addLog('ERROR', '清理失敗: ' + data.error);
             }

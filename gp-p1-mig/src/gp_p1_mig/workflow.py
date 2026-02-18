@@ -139,13 +139,24 @@ def cmd_ingest(
                 progress(i, total, path.name)
             content_id = _sha256(path)
             sidecar = _find_sidecar(path)
-            row = conn.execute("SELECT content_id FROM media_items WHERE content_id=?", (content_id,)).fetchone()
+            row = conn.execute("SELECT content_id, extracted_path FROM media_items WHERE content_id=?", (content_id,)).fetchone()
             if row:
-                duplicates += 1
-                conn.execute(
-                    "INSERT INTO duplicates(content_id, dup_path, source_zip, ingest_run_id) VALUES (?, ?, ?, ?)",
-                    (content_id, str(path), str(zip_path), run_id),
-                )
+                # File already in DB. Check if its extracted_path is stale (file missing).
+                # If so, update it to the newly-extracted location.
+                old_path = Path(row['extracted_path']) if row['extracted_path'] else None
+                if old_path is None or not old_path.exists():
+                    conn.execute(
+                        "UPDATE media_items SET extracted_path=?, sidecar_path=?, has_sidecar=?, updated_at=CURRENT_TIMESTAMP WHERE content_id=?",
+                        (str(path), str(sidecar) if sidecar else None, 1 if sidecar else 0, content_id),
+                    )
+                    log.info("更新遺失檔案路徑: %s", path.name)
+                    ingested += 1  # Count as restored
+                else:
+                    duplicates += 1
+                    conn.execute(
+                        "INSERT INTO duplicates(content_id, dup_path, source_zip, ingest_run_id) VALUES (?, ?, ?, ?)",
+                        (content_id, str(path), str(zip_path), run_id),
+                    )
                 continue
 
             conn.execute(
@@ -359,8 +370,24 @@ def cmd_patch(
             if progress:
                 progress(idx, total, Path(r["extracted_path"]).name)
             src = Path(r["extracted_path"])
+            
+            if not src.exists():
+                err = f"source file missing: {src}"
+                log.warning("❌ 原始檔案遺失: %s", src)
+                conn.execute(
+                    "UPDATE media_items SET patch_status='FAILED', patch_error=?, updated_at=CURRENT_TIMESTAMP WHERE id=?",
+                    (err, r["id"]),
+                )
+                fail += 1
+                continue
+
             # Detect actual format (handles .PNG files that are really JPEG)
-            real_ext = _detect_real_ext(src)
+            try:
+                real_ext = _detect_real_ext(src)
+            except Exception as e:
+                log.warning("無法偵測檔案格式: %s (%s)", src, e)
+                real_ext = r["ext"]
+
             ext = real_ext if real_ext != r["ext"] else r["ext"]
             if ext != r["ext"]:
                 log.info("副檔名修正: %s (.%s → .%s)", src.name, r['ext'], ext)
@@ -703,33 +730,69 @@ def cmd_purge(root: Path, db_path: Path, batch_id: str, purge_patched: bool = Tr
 
 
 def cmd_clean_duplicates(db_path: Path) -> dict:
-    """Clean up duplicate files recorded in the database."""
+    """Clean up duplicate files recorded in the database.
+
+    SAFETY: Only removes files that are NOT referenced in media_items.
+    Files are MOVED to a 'duplicates_trash' folder, not permanently deleted.
+    """
+    import shutil as _shutil
+
     with transaction(db_path) as conn:
+        # Get all paths referenced by media_items (these must NEVER be deleted)
+        protected_paths: set[str] = set()
+        for row in conn.execute(
+            "SELECT extracted_path FROM media_items WHERE extracted_path IS NOT NULL"
+        ).fetchall():
+            protected_paths.add(row["extracted_path"])
+
         rows = conn.execute("SELECT id, dup_path FROM duplicates").fetchall()
-        deleted_count = 0
+
+        # Create trash directory next to state.db  →  data/work/duplicates_trash
+        trash_dir = Path(db_path).parent.parent / "work" / "duplicates_trash"
+        trash_dir.mkdir(parents=True, exist_ok=True)
+
+        moved_count = 0
+        skipped_protected = 0
+        already_gone = 0
         space_freed = 0
-        
+
         for row in rows:
-            path = Path(row['dup_path'])
-            if path.exists():
-                try:
-                    size = path.stat().st_size
-                    path.unlink()
-                    deleted_count += 1
-                    space_freed += size
-                    
-                    # Try to clean up sidecar
-                    sidecar = path.with_name(path.name + ".json")
-                    if sidecar.exists():
-                        sidecar.unlink()
-                    sidecar2 = path.with_name(path.name + ".supplemental-metadata.json")
-                    if sidecar2.exists():
-                        sidecar2.unlink()
-                except Exception:
-                    pass
-    
-    log.info("已清理重複檔案: count=%d, size=%.2f MB", deleted_count, space_freed / (1024*1024))
-    return {"deleted_count": deleted_count, "space_freed_mb": space_freed / (1024*1024)}
+            dup_path = row["dup_path"]
+            path = Path(dup_path)
+
+            # CRITICAL: Skip if this path is also in media_items
+            if dup_path in protected_paths:
+                skipped_protected += 1
+                continue
+
+            if not path.exists():
+                already_gone += 1
+                continue
+
+            try:
+                size = path.stat().st_size
+                dest = trash_dir / path.name
+                if dest.exists():
+                    dest = trash_dir / f"{path.stem}_{row['id']}{path.suffix}"
+                _shutil.move(str(path), str(dest))
+                moved_count += 1
+                space_freed += size
+            except Exception as exc:
+                log.warning("無法移動檔案 %s: %s", path, exc)
+
+    log.info(
+        "清理重複檔案: moved=%d, skipped_protected=%d, already_gone=%d, freed=%.2f MB",
+        moved_count, skipped_protected, already_gone, space_freed / (1024 * 1024),
+    )
+    return {
+        "moved_count": moved_count,
+        "skipped_protected": skipped_protected,
+        "already_gone": already_gone,
+        "space_freed_mb": round(space_freed / (1024 * 1024), 2),
+        "trash_dir": str(trash_dir),
+    }
+
+
 
 
 def cmd_retry_failed(

@@ -23,6 +23,7 @@ from ..workflow import (
     cmd_push,
     cmd_reconcile,
     cmd_retry_failed,
+    cmd_clean_duplicates,
     default_db,
     ensure_workspace,
 )
@@ -287,6 +288,15 @@ def api_mark_verified():
         return jsonify({"ok": False, "error": "請指定 Batch ID"}), 400
     _run_task("Mark Verified", cmd_mark_verified, _db(), batch_id)
     return jsonify({"ok": True})
+
+
+@app.route("/api/clean-duplicates", methods=["POST"])
+def api_clean_duplicates():
+    try:
+        stats = cmd_clean_duplicates(Path(_db()))
+        return jsonify({"ok": True, "stats": stats})
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)})
 
 
 @app.route("/api/batch-samples", methods=["GET"])
