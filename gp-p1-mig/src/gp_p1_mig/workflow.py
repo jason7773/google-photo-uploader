@@ -117,15 +117,19 @@ def cmd_ingest(
             if not str(resolved).startswith(extract_root_str):
                 raise MigError(f"Zip path traversal detected: {member}")
         zf.extractall(extract_root)
+
+        # Collect media files ONLY from this ZIP (not the entire extracted dir)
+        media_files = []
+        for member in zf.namelist():
+            if member.endswith('/') or member.endswith('\\'):
+                continue
+            full_path = (extract_root / member).resolve()
+            if full_path.is_file() and full_path.suffix.lower() in MEDIA_EXTS:
+                media_files.append(full_path)
     log.info("ZIP 解壓完成: %s", extract_root)
 
-    # Collect media files first for progress tracking
-    media_files = [
-        p for p in extract_root.rglob("*")
-        if p.is_file() and p.suffix.lower() in MEDIA_EXTS
-    ]
     total = len(media_files)
-    log.info("偵測到 %d 個媒體檔案", total)
+    log.info("偵測到 %d 個媒體檔案 (僅此 ZIP)", total)
 
     ingested = 0
     duplicates = 0
