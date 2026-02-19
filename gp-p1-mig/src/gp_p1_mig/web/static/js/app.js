@@ -139,6 +139,14 @@ function refresh() {
     }).catch(() => { });
 }
 
+// ── XSS escape helper ──
+function esc(s) {
+    if (s == null) return '';
+    const d = document.createElement('div');
+    d.textContent = String(s);
+    return d.innerHTML;
+}
+
 function renderBatches(batches) {
     const tbody = document.getElementById('batchTableBody');
     if (!batches.length) {
@@ -147,15 +155,15 @@ function renderBatches(batches) {
     }
     tbody.innerHTML = batches.map(b => `
     <tr>
-      <td><strong>${b.batch_id}</strong></td>
-      <td><span class="status-badge ${b.status}">${b.status}</span></td>
-      <td>${b.total_files}</td>
+      <td><strong>${esc(b.batch_id)}</strong></td>
+      <td><span class="status-badge ${esc(b.status)}">${esc(b.status)}</span></td>
+      <td>${esc(b.total_files)}</td>
       <td>${formatBytes(b.total_bytes)}</td>
-      <td>${b.created_at || ''}</td>
+      <td>${esc(b.created_at || '')}</td>
       <td>
-        ${b.status === 'CREATED' ? `<button class="btn small" onclick="batchAction('push','${b.batch_id}')">Push</button>` : ''}
-        ${b.status === 'PUSHED' ? `<button class="btn small" onclick="verifyBatch('${b.batch_id}')">Verify</button>` : ''}
-        ${b.status === 'VERIFIED' ? `<button class="btn small danger" onclick="batchAction('purge','${b.batch_id}')">Purge (Free Space)</button>` : ''}
+        ${b.status === 'CREATED' ? `<button class="btn small" onclick="batchAction('push','${esc(b.batch_id)}')">Push</button>` : ''}
+        ${b.status === 'PUSHED' ? `<button class="btn small" onclick="verifyBatch('${esc(b.batch_id)}')">Verify</button>` : ''}
+        ${b.status === 'VERIFIED' ? `<button class="btn small danger" onclick="batchAction('purge','${esc(b.batch_id)}')">Purge (Free Space)</button>` : ''}
       </td>
     </tr>
   `).join('');

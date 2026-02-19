@@ -251,7 +251,7 @@ def cmd_reconcile(db_path: Path) -> dict:
     parsed = 0
     log.info("開始比對 sidecar")
     with transaction(db_path) as conn:
-        rows = conn.execute("SELECT id, extracted_path, sidecar_path, has_sidecar FROM media_items").fetchall()
+        rows = conn.execute("SELECT id, extracted_path, sidecar_path, has_sidecar FROM media_items WHERE patch_status='NEW'").fetchall()
         log.info("共 %d 筆待比對", len(rows))
         by_dir: dict[str, list[Path]] = {}
         for r in rows:
@@ -642,8 +642,13 @@ def cmd_push(root: Path, db_path: Path, batch_id: str, device_path: str, adb_bin
                 # Quote the path in case of spaces
                 cmd = [adb_bin, "shell", "ls", "-l", f"'{target_file}'"]
                 rc_ls, stdout_ls, _ = _run(cmd)
-                if rc_ls == 0 and stdout_ls and str(item['file_size']) in stdout_ls:
-                    passed_count += 1
+                if rc_ls == 0 and stdout_ls:
+                    # Extract file size from ls -l output using regex for precise matching
+                    size_match = re.search(r'\b' + str(item['file_size']) + r'\b', stdout_ls)
+                    if size_match:
+                        passed_count += 1
+                    else:
+                        log.warning("自動驗證失敗 (Size mismatch): %s", item['file_name'])
                 else:
                     log.warning("自動驗證失敗 (Missing/Size mismatch): %s", item['file_name'])
             
