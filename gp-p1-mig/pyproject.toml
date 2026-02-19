@@ -11,12 +11,17 @@ requires-python = ">=3.11"
 authors = [{name = "gp-p1-mig"}]
 dependencies = [
   "typer>=0.12",
-  "rich>=13.7"
+  "rich>=13.7",
+  "flask>=3.0",
+  "flask-socketio>=5.3",
 ]
+
+[project.optional-dependencies]
+dev = ["pytest>=7", "pillow"]
 
 [project.scripts]
 gp-p1-mig = "gp_p1_mig.cli:app"
-gp-p1-mig-ui = "gp_p1_mig.ui:main"
+gp-p1-mig-ui = "gp_p1_mig.web_ui:main"
 
 [tool.setuptools]
 package-dir = {"" = "src"}

@@ -388,7 +388,9 @@ def cmd_patch(
     ok = 0
     fail = 0
     verified = 0
-    with transaction(db_path) as conn:
+    BATCH_SIZE = 50
+    conn = connect(db_path)
+    try:
         rows = conn.execute(
             "SELECT id, content_id, ext, extracted_path, expected_taken_epoch, expected_lat, expected_lng FROM media_items WHERE patch_status='READY'"
         ).fetchall()
@@ -407,6 +409,8 @@ def cmd_patch(
                     (err, r["id"]),
                 )
                 fail += 1
+                if idx % BATCH_SIZE == 0:
+                    conn.commit()
                 continue
 
             # Detect actual format (handles .PNG files that are really JPEG)
@@ -495,6 +499,15 @@ def cmd_patch(
                     (str(dst), r["id"]),
                 )
                 ok += 1
+            # Commit in batches to avoid losing all progress on crash
+            if idx % BATCH_SIZE == 0:
+                conn.commit()
+        conn.commit()
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        conn.close()
     log.info("Patch 完成: ok=%d, failed=%d, verified=%d", ok, fail, verified)
     return {"patched": ok, "failed": fail, "verified": verified}
 

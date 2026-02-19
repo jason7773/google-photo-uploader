@@ -68,3 +68,10 @@ CREATE TABLE IF NOT EXISTS ingest_runs (
 CREATE INDEX IF NOT EXISTS idx_media_patch_status ON media_items(patch_status);
 CREATE INDEX IF NOT EXISTS idx_media_batch_id ON media_items(batch_id);
 CREATE INDEX IF NOT EXISTS idx_batch_status ON batches(status);
+
+-- Schema versioning for future migrations
+CREATE TABLE IF NOT EXISTS schema_version (
+    version INTEGER PRIMARY KEY,
+    applied_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+INSERT OR IGNORE INTO schema_version(version) VALUES (1);
