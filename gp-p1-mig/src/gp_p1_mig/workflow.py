@@ -21,7 +21,21 @@ from .tools import find_exiftool, find_ffmpeg, verify_tools
 
 log = logging.getLogger(__name__)
 
-MEDIA_EXTS = {".jpg", ".jpeg", ".heic", ".png", ".mp4", ".mov"}
+# Google Photos 支援的所有格式
+IMAGE_EXTS = {
+    ".jpg", ".jpeg", ".heic", ".heif", ".png", ".gif", ".webp",
+    ".bmp", ".ico", ".tiff", ".tif",
+    # RAW 格式
+    ".dng", ".cr2", ".cr3", ".nef", ".arw", ".crw",
+    ".orf", ".raf", ".pef", ".srw", ".rw2",
+}
+VIDEO_EXTS = {
+    ".mp4", ".mov", ".avi", ".mkv", ".mpg", ".mpeg",
+    ".mod", ".mmv", ".tod", ".wmv", ".asf",
+    ".divx", ".m4v", ".3gp", ".3g2",
+    ".m2t", ".m2ts", ".mts",
+}
+MEDIA_EXTS = IMAGE_EXTS | VIDEO_EXTS
 
 # Optional progress callback: (current, total, description) -> None
 ProgressCallback = Callable[[int, int, str], None] | None
@@ -237,7 +251,7 @@ def cmd_reconcile(db_path: Path) -> dict:
     parsed = 0
     log.info("開始比對 sidecar")
     with transaction(db_path) as conn:
-        rows = conn.execute("SELECT id, extracted_path, sidecar_path, has_sidecar FROM media_items").fetchall()
+        rows = conn.execute("SELECT id, extracted_path, sidecar_path, has_sidecar FROM media_items WHERE patch_status='NEW'").fetchall()
         log.info("共 %d 筆待比對", len(rows))
         by_dir: dict[str, list[Path]] = {}
         for r in rows:
@@ -374,7 +388,9 @@ def cmd_patch(
     ok = 0
     fail = 0
     verified = 0
-    with transaction(db_path) as conn:
+    BATCH_SIZE = 50
+    conn = connect(db_path)
+    try:
         rows = conn.execute(
             "SELECT id, content_id, ext, extracted_path, expected_taken_epoch, expected_lat, expected_lng FROM media_items WHERE patch_status='READY'"
         ).fetchall()
@@ -393,6 +409,8 @@ def cmd_patch(
                     (err, r["id"]),
                 )
                 fail += 1
+                if idx % BATCH_SIZE == 0:
+                    conn.commit()
                 continue
 
             # Detect actual format (handles .PNG files that are really JPEG)
@@ -408,7 +426,7 @@ def cmd_patch(
             dst = patched_dir / f"{r['content_id']}.{ext}"
             shutil.copy2(src, dst)
             err = ""
-            is_image = ext in {"jpg", "jpeg", "heic", "png"}
+            is_image = f".{ext}" in IMAGE_EXTS
 
             if is_image:
                 # ── Image patch via exiftool ──
@@ -481,6 +499,15 @@ def cmd_patch(
                     (str(dst), r["id"]),
                 )
                 ok += 1
+            # Commit in batches to avoid losing all progress on crash
+            if idx % BATCH_SIZE == 0:
+                conn.commit()
+        conn.commit()
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        conn.close()
     log.info("Patch 完成: ok=%d, failed=%d, verified=%d", ok, fail, verified)
     return {"patched": ok, "failed": fail, "verified": verified}
 
@@ -495,7 +522,7 @@ def _next_batch_id(conn: sqlite3.Connection) -> str:
 def cmd_make_batch(root: Path, db_path: Path, max_bytes: int, max_files: int) -> dict:
     batches_root = root / "data" / "work" / "batches"
     batches_root.mkdir(parents=True, exist_ok=True)
-    selected: list[tuple[str, Path, int]] = []
+    selected: list[tuple[str, Path, int, str]] = []
     total_bytes = 0
     with transaction(db_path) as conn:
         rows = conn.execute(
@@ -575,6 +602,8 @@ def cmd_make_batch(root: Path, db_path: Path, max_bytes: int, max_files: int) ->
 
 
 def cmd_push(root: Path, db_path: Path, batch_id: str, device_path: str, adb_bin: str = "adb") -> dict:
+    passed_count = 0
+    sample = []
     with transaction(db_path) as conn:
         row = conn.execute("SELECT * FROM batches WHERE batch_id=?", (batch_id,)).fetchone()
         if not row:
@@ -603,7 +632,6 @@ def cmd_push(root: Path, db_path: Path, batch_id: str, device_path: str, adb_bin
              log.warning("批次無檔案，跳過驗證")
         else:
             # Pick random 50
-            import random
             sample = random.sample(b_items, k=min(len(b_items), 50))
             passed_count = 0
             for item in sample:
@@ -614,8 +642,13 @@ def cmd_push(root: Path, db_path: Path, batch_id: str, device_path: str, adb_bin
                 # Quote the path in case of spaces
                 cmd = [adb_bin, "shell", "ls", "-l", f"'{target_file}'"]
                 rc_ls, stdout_ls, _ = _run(cmd)
-                if rc_ls == 0 and stdout_ls and str(item['file_size']) in stdout_ls:
-                    passed_count += 1
+                if rc_ls == 0 and stdout_ls:
+                    # Extract file size from ls -l output using regex for precise matching
+                    size_match = re.search(r'\b' + str(item['file_size']) + r'\b', stdout_ls)
+                    if size_match:
+                        passed_count += 1
+                    else:
+                        log.warning("自動驗證失敗 (Size mismatch): %s", item['file_name'])
                 else:
                     log.warning("自動驗證失敗 (Missing/Size mismatch): %s", item['file_name'])
             
@@ -628,7 +661,7 @@ def cmd_push(root: Path, db_path: Path, batch_id: str, device_path: str, adb_bin
             (now_iso(), device_path, batch_id),
         )
     log.info("批次 %s 推送完成 -> %s", batch_id, device_path)
-    return {"batch_id": batch_id, "device_path": device_path, "verify_passed": passed_count if 'passed_count' in locals() else 0, "verify_total": len(sample) if 'sample' in locals() else 0}
+    return {"batch_id": batch_id, "device_path": device_path, "verify_passed": passed_count, "verify_total": len(sample)}
 
 
 def cmd_export_verify(root: Path, db_path: Path, batch_id: str, sample_size: int = 30) -> dict:
@@ -680,7 +713,7 @@ def cmd_import_verify(db_path: Path, batch_id: str, result_csv: Path) -> dict:
     return {"batch_id": batch_id, "status": status, "rows": len(rows)}
 
 
-def cmd_purge(root: Path, db_path: Path, batch_id: str, purge_patched: bool = True) -> dict:
+def cmd_purge(root: Path, db_path: Path, batch_id: str) -> dict:
     with transaction(db_path) as conn:
         row = conn.execute("SELECT status, local_batch_path FROM batches WHERE batch_id=?", (batch_id,)).fetchone()
         if not row:
@@ -749,7 +782,7 @@ def cmd_clean_duplicates(db_path: Path) -> dict:
     SAFETY: Only removes files that are NOT referenced in media_items.
     Files are MOVED to a 'duplicates_trash' folder, not permanently deleted.
     """
-    import shutil as _shutil
+
 
     with transaction(db_path) as conn:
         # Get all paths referenced by media_items (these must NEVER be deleted)
@@ -788,7 +821,7 @@ def cmd_clean_duplicates(db_path: Path) -> dict:
                 dest = trash_dir / path.name
                 if dest.exists():
                     dest = trash_dir / f"{path.stem}_{row['id']}{path.suffix}"
-                _shutil.move(str(path), str(dest))
+                shutil.move(str(path), str(dest))
                 moved_count += 1
                 space_freed += size
             except Exception as exc:

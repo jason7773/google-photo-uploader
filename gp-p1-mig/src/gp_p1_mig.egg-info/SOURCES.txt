@@ -5,6 +5,7 @@ src/gp_p1_mig/cli.py
 src/gp_p1_mig/db.py
 src/gp_p1_mig/tools.py
 src/gp_p1_mig/ui.py
+src/gp_p1_mig/web_ui.py
 src/gp_p1_mig/workflow.py
 src/gp_p1_mig.egg-info/PKG-INFO
 src/gp_p1_mig.egg-info/SOURCES.txt
@@ -12,3 +13,8 @@ src/gp_p1_mig.egg-info/dependency_links.txt
 src/gp_p1_mig.egg-info/entry_points.txt
 src/gp_p1_mig.egg-info/requires.txt
 src/gp_p1_mig.egg-info/top_level.txt
+src/gp_p1_mig/web/__init__.py
+src/gp_p1_mig/web/app.py
+tests/test_db.py
+tests/test_tools.py
+tests/test_workflow.py

@@ -129,7 +129,7 @@ class App(tk.Tk):
 
     def do_purge(self):
         r, d = self._paths()
-        return cmd_purge(r, d, batch_id=self.batch_var.get(), purge_patched=True)
+        return cmd_purge(r, d, batch_id=self.batch_var.get())
 
     def do_retry_failed(self):
         r, d = self._paths()

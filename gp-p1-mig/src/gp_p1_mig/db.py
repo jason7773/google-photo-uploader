@@ -78,7 +78,20 @@ CREATE TABLE IF NOT EXISTS ingest_runs (
 CREATE INDEX IF NOT EXISTS idx_media_patch_status ON media_items(patch_status);
 CREATE INDEX IF NOT EXISTS idx_media_batch_id ON media_items(batch_id);
 CREATE INDEX IF NOT EXISTS idx_batch_status ON batches(status);
+
+-- Schema versioning for future migrations
+CREATE TABLE IF NOT EXISTS schema_version (
+    version INTEGER PRIMARY KEY,
+    applied_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+INSERT OR IGNORE INTO schema_version(version) VALUES (1);
 """
+
+# Future migrations: add entries as (version, sql) tuples.
+# Each migration should be idempotent (use IF NOT EXISTS, etc.)
+_MIGRATIONS: list[tuple[int, str]] = [
+    # (2, "ALTER TABLE media_items ADD COLUMN new_col TEXT;"),
+]
 
 
 def connect(db_path: Path) -> sqlite3.Connection:
@@ -106,4 +119,23 @@ def transaction(db_path: Path) -> Generator[sqlite3.Connection, None, None]:
 def init_db(db_path: Path) -> None:
     with transaction(db_path) as conn:
         conn.executescript(_SCHEMA)
+    migrate_db(db_path)
+
+
+def migrate_db(db_path: Path) -> None:
+    """Apply any pending schema migrations in order."""
+    if not _MIGRATIONS:
+        return
+    with transaction(db_path) as conn:
+        try:
+            row = conn.execute("SELECT MAX(version) FROM schema_version").fetchone()
+            current = row[0] if row and row[0] else 1
+        except Exception:
+            current = 0
+        for ver, sql in sorted(_MIGRATIONS):
+            if ver > current:
+                conn.executescript(sql)
+                conn.execute(
+                    "INSERT OR REPLACE INTO schema_version(version) VALUES (?)", (ver,)
+                )
 

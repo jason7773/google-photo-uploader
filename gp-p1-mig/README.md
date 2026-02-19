@@ -13,17 +13,31 @@ gp-p1-mig/
 │  └─ init.sql
 ├─ scripts/
 │  ├─ smoke_test.py
+│  ├─ verify_p0.py
 │  └─ build_windows_exe.bat
-├─ data/
-│  └─ sample/
-│     └─ README.md
+├─ tests/
+│  ├─ conftest.py
+│  ├─ test_db.py
+│  ├─ test_tools.py
+│  └─ test_workflow.py
+├─ tools/                  ← exiftool / ffmpeg / adb 放這裡
+│  └─ (platform binaries)
 └─ src/
    └─ gp_p1_mig/
       ├─ __init__.py
       ├─ db.py
       ├─ workflow.py
       ├─ cli.py
-      └─ ui.py
+      ├─ tools.py
+      ├─ ui.py             ← Tkinter UI (legacy)
+      ├─ web_ui.py          ← Web UI launcher
+      └─ web/
+         ├─ app.py
+         ├─ templates/
+         │  └─ index.html
+         └─ static/
+            ├─ css/style.css
+            └─ js/app.js
 ```
 
 ## 安裝需求
@@ -47,7 +61,7 @@ pip install -e .
 - `gp-p1-mig push <batch-id> --device-path /sdcard/DCIM/Camera`
 - `gp-p1-mig export-verify <batch-id>`
 - `gp-p1-mig import-verify <batch-id> <result.csv>`
-- `gp-p1-mig purge <batch-id> [--purge-patched]`
+- `gp-p1-mig purge <batch-id>`
 
 所有步驟都會輸出可讀結果，錯誤時會顯示 stderr 摘要。
 

@@ -32,8 +32,11 @@ log = logging.getLogger(__name__)
 
 # ── Flask + SocketIO setup ──
 
+import os
+import threading
+
 app = Flask(__name__)
-app.config["SECRET_KEY"] = "gp-p1-mig-local"
+app.config["SECRET_KEY"] = os.urandom(24).hex()
 socketio = SocketIO(app, async_mode="threading")
 
 # ── Global state (single-user local app) ──
@@ -77,15 +80,19 @@ def _progress_callback(current: int, total: int, desc: str) -> None:
     socketio.emit("progress", {"current": current, "total": total, "desc": desc})
 
 
+_state_lock = threading.Lock()
+
+
 def _run_task(name: str, fn, *args, **kwargs):
     """Run a workflow function in a background thread, emitting results via SocketIO."""
-    if STATE["busy"]:
-        socketio.emit("error", {"message": "另一個任務正在執行中，請稍候。"})
-        return
-
-    def _worker():
+    with _state_lock:
+        if STATE["busy"]:
+            socketio.emit("error", {"message": "另一個任務正在執行中，請稍候。"})
+            return
         STATE["busy"] = True
         STATE["current_task"] = name
+
+    def _worker():
         socketio.emit("task_start", {"name": name})
         try:
             result = fn(*args, **kwargs)
@@ -95,8 +102,9 @@ def _run_task(name: str, fn, *args, **kwargs):
         except Exception as e:
             socketio.emit("task_error", {"name": name, "error": str(e)})
         finally:
-            STATE["busy"] = False
-            STATE["current_task"] = None
+            with _state_lock:
+                STATE["busy"] = False
+                STATE["current_task"] = None
             socketio.emit("progress", {"current": 0, "total": 0, "desc": ""})
 
     threading.Thread(target=_worker, daemon=True).start()
@@ -272,7 +280,7 @@ def api_purge():
     batch_id = data.get("batch_id", "")
     if not batch_id:
         return jsonify({"ok": False, "error": "請指定 Batch ID"}), 400
-    _run_task("Purge", cmd_purge, _root(), _db(), batch_id=batch_id, purge_patched=True)
+    _run_task("Purge", cmd_purge, _root(), _db(), batch_id=batch_id)
     return jsonify({"ok": True})
 
 
