@@ -125,7 +125,7 @@ def api_state():
     try:
         conn = connect(d)
         
-        # 1. Total count
+        # 1. Total count (all items)
         stats["total"] = conn.execute("SELECT COUNT(*) FROM media_items").fetchone()[0]
         
         # 2. Pending (NEW/READY)
@@ -138,7 +138,7 @@ def api_state():
             "SELECT COUNT(*) FROM media_items WHERE patch_status='PATCHED' AND batch_id IS NULL"
         ).fetchone()[0]
         
-        # 4. Batched (In batches but not yet verified)
+        # 4. Batched (In batches but not yet verified/purged)
         stats["batched"] = conn.execute(
             """
             SELECT COUNT(*) FROM media_items m
@@ -147,13 +147,9 @@ def api_state():
             """
         ).fetchone()[0]
         
-        # 5. Uploaded (Items in VERIFIED or PURGED batches only)
+        # 5. Uploaded (items with patch_status=PURGED — includes batch-purged + manually marked)
         stats["uploaded"] = conn.execute(
-            """
-            SELECT COUNT(*) FROM media_items m
-            JOIN batches b ON m.batch_id = b.batch_id
-            WHERE b.status IN ('VERIFIED', 'PURGED')
-            """
+            "SELECT COUNT(*) FROM media_items WHERE patch_status='PURGED'"
         ).fetchone()[0]
         
         # 6. Failed

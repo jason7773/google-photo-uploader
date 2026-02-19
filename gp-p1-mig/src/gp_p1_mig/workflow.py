@@ -143,18 +143,28 @@ def cmd_ingest(
                 progress(i, total, path.name)
             content_id = _sha256(path)
             sidecar = _find_sidecar(path)
-            row = conn.execute("SELECT content_id, extracted_path FROM media_items WHERE content_id=?", (content_id,)).fetchone()
+            row = conn.execute("SELECT content_id, extracted_path, patch_status FROM media_items WHERE content_id=?", (content_id,)).fetchone()
             if row:
                 # File already in DB. Check if its extracted_path is stale (file missing).
-                # If so, update it to the newly-extracted location.
                 old_path = Path(row['extracted_path']) if row['extracted_path'] else None
                 if old_path is None or not old_path.exists():
-                    conn.execute(
-                        "UPDATE media_items SET extracted_path=?, sidecar_path=?, has_sidecar=?, updated_at=CURRENT_TIMESTAMP WHERE content_id=?",
-                        (str(path), str(sidecar) if sidecar else None, 1 if sidecar else 0, content_id),
-                    )
-                    log.info("更新遺失檔案路徑: %s", path.name)
-                    ingested += 1  # Count as restored
+                    # PURGED items should NOT be updated — they are already uploaded.
+                    # Treat the new file as a duplicate to be cleaned up later.
+                    if row['patch_status'] == 'PURGED':
+                        duplicates += 1
+                        conn.execute(
+                            "INSERT INTO duplicates(content_id, dup_path, source_zip, ingest_run_id) VALUES (?, ?, ?, ?)",
+                            (content_id, str(path), str(zip_path), run_id),
+                        )
+                        log.info("跳過已 PURGED 項目: %s", path.name)
+                    else:
+                        # Not yet uploaded — update to the newly-extracted location.
+                        conn.execute(
+                            "UPDATE media_items SET extracted_path=?, sidecar_path=?, has_sidecar=?, updated_at=CURRENT_TIMESTAMP WHERE content_id=?",
+                            (str(path), str(sidecar) if sidecar else None, 1 if sidecar else 0, content_id),
+                        )
+                        log.info("更新遺失檔案路徑: %s", path.name)
+                        ingested += 1  # Count as restored
                 else:
                     duplicates += 1
                     conn.execute(
