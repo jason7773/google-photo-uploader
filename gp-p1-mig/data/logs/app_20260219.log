@@ -5163,3 +5163,47 @@
 2026-02-19 17:26:43,956 | INFO  | werkzeug | 127.0.0.1 - - [19/Feb/2026 17:26:43] "GET /api/state HTTP/1.1" 200 -
 2026-02-19 17:26:54,591 | INFO  | werkzeug | 127.0.0.1 - - [19/Feb/2026 17:26:54] "GET /api/state HTTP/1.1" 200 -
 2026-02-19 17:27:04,541 | INFO  | werkzeug | 127.0.0.1 - - [19/Feb/2026 17:27:04] "GET /api/state HTTP/1.1" 200 -
+2026-02-19 19:06:05,863 | INFO  | root | Log 檔案位置: C:\Users\jason\Documents\google photo uploader\gp-p1-mig\data\logs\app_20260219.log
+2026-02-19 19:06:24,149 | INFO  | root | Log 檔案位置: C:\Users\jason\Documents\google photo uploader\gp-p1-mig\data\logs\app_20260219.log
+2026-02-19 19:06:44,007 | INFO  | root | Log 檔案位置: C:\Users\jason\Documents\google photo uploader\gp-p1-mig\data\logs\app_20260219.log
+2026-02-19 19:07:12,063 | INFO  | root | Log 檔案位置: C:\Users\jason\Documents\google photo uploader\gp-p1-mig\data\logs\app_20260219.log
+2026-02-19 19:07:12,473 | INFO  | werkzeug | [31m[1mWARNING: This is a development server. Do not use it in a production deployment. Use a production WSGI server instead.[0m
+ * Running on http://127.0.0.1:5000
+2026-02-19 19:07:12,473 | INFO  | werkzeug | [33mPress CTRL+C to quit[0m
+2026-02-19 19:07:14,447 | INFO  | werkzeug | 127.0.0.1 - - [19/Feb/2026 19:07:14] "GET / HTTP/1.1" 200 -
+2026-02-19 19:07:14,595 | INFO  | werkzeug | 127.0.0.1 - - [19/Feb/2026 19:07:14] "[36mGET /static/css/style.css HTTP/1.1[0m" 304 -
+2026-02-19 19:07:14,602 | INFO  | werkzeug | 127.0.0.1 - - [19/Feb/2026 19:07:14] "GET /static/js/app.js HTTP/1.1" 200 -
+2026-02-19 19:07:14,717 | INFO  | werkzeug | 127.0.0.1 - - [19/Feb/2026 19:07:14] "GET /socket.io/?EIO=4&transport=polling&t=PnrbIMH HTTP/1.1" 200 -
+2026-02-19 19:07:14,752 | INFO  | gp_p1_mig.web.app | 瀏覽器已連線
+2026-02-19 19:07:14,754 | INFO  | werkzeug | 127.0.0.1 - - [19/Feb/2026 19:07:14] "POST /socket.io/?EIO=4&transport=polling&t=PnrbIMz&sid=aYwENxk0MD7CKbfPAAAA HTTP/1.1" 200 -
+2026-02-19 19:07:14,756 | INFO  | werkzeug | 127.0.0.1 - - [19/Feb/2026 19:07:14] "GET /socket.io/?EIO=4&transport=polling&t=PnrbIM_&sid=aYwENxk0MD7CKbfPAAAA HTTP/1.1" 200 -
+2026-02-19 19:07:14,776 | INFO  | werkzeug | 127.0.0.1 - - [19/Feb/2026 19:07:14] "GET /socket.io/?EIO=4&transport=polling&t=PnrbINF&sid=aYwENxk0MD7CKbfPAAAA HTTP/1.1" 200 -
+2026-02-19 19:07:15,218 | INFO  | werkzeug | 127.0.0.1 - - [19/Feb/2026 19:07:15] "GET /api/state HTTP/1.1" 200 -
+2026-02-19 19:07:15,468 | INFO  | werkzeug | 127.0.0.1 - - [19/Feb/2026 19:07:15] "GET /api/state HTTP/1.1" 200 -
+2026-02-19 19:07:18,614 | INFO  | werkzeug | 127.0.0.1 - - [19/Feb/2026 19:07:18] "GET /api/state HTTP/1.1" 200 -
+2026-02-19 19:07:23,469 | INFO  | werkzeug | 127.0.0.1 - - [19/Feb/2026 19:07:23] "POST /api/mark-verified HTTP/1.1" 200 -
+2026-02-19 19:07:23,479 | INFO  | gp_p1_mig.workflow | 批次 B0019 已標記為 VERIFIED
+2026-02-19 19:07:23,792 | INFO  | werkzeug | 127.0.0.1 - - [19/Feb/2026 19:07:23] "GET /api/state HTTP/1.1" 200 -
+2026-02-19 19:07:24,369 | INFO  | werkzeug | 127.0.0.1 - - [19/Feb/2026 19:07:24] "GET /api/state HTTP/1.1" 200 -
+2026-02-19 19:07:24,995 | INFO  | werkzeug | 127.0.0.1 - - [19/Feb/2026 19:07:24] "GET /api/state HTTP/1.1" 200 -
+2026-02-19 19:07:25,982 | INFO  | werkzeug | 127.0.0.1 - - [19/Feb/2026 19:07:25] "POST /api/purge HTTP/1.1" 200 -
+2026-02-19 19:07:28,623 | INFO  | gp_p1_mig.workflow | 清除完成: batch=B0019, patched=500, extracted=500, sidecar=500
+2026-02-19 19:07:29,387 | INFO  | werkzeug | 127.0.0.1 - - [19/Feb/2026 19:07:29] "GET /api/state HTTP/1.1" 200 -
+2026-02-19 19:07:35,006 | INFO  | werkzeug | 127.0.0.1 - - [19/Feb/2026 19:07:35] "GET /api/state HTTP/1.1" 200 -
+2026-02-19 19:07:36,339 | INFO  | werkzeug | 127.0.0.1 - - [19/Feb/2026 19:07:36] "GET /api/state HTTP/1.1" 200 -
+2026-02-19 19:07:44,999 | INFO  | werkzeug | 127.0.0.1 - - [19/Feb/2026 19:07:44] "GET /api/state HTTP/1.1" 200 -
+2026-02-19 19:07:47,557 | INFO  | werkzeug | 127.0.0.1 - - [19/Feb/2026 19:07:47] "GET /api/state HTTP/1.1" 200 -
+2026-02-19 19:07:51,465 | INFO  | werkzeug | 127.0.0.1 - - [19/Feb/2026 19:07:51] "POST /api/make-batch HTTP/1.1" 200 -
+2026-02-19 19:07:55,276 | INFO  | werkzeug | 127.0.0.1 - - [19/Feb/2026 19:07:55] "GET /api/state HTTP/1.1" 200 -
+2026-02-19 19:08:03,576 | INFO  | gp_p1_mig.workflow | 批次 B0020 建立完成: 500 檔, 2565954231 bytes
+2026-02-19 19:08:04,568 | INFO  | werkzeug | 127.0.0.1 - - [19/Feb/2026 19:08:04] "GET /api/state HTTP/1.1" 200 -
+2026-02-19 19:08:04,945 | INFO  | werkzeug | 127.0.0.1 - - [19/Feb/2026 19:08:04] "GET /api/state HTTP/1.1" 200 -
+2026-02-19 19:08:14,989 | INFO  | werkzeug | 127.0.0.1 - - [19/Feb/2026 19:08:14] "GET /api/state HTTP/1.1" 200 -
+2026-02-19 19:08:21,790 | INFO  | werkzeug | 127.0.0.1 - - [19/Feb/2026 19:08:21] "POST /api/push HTTP/1.1" 200 -
+2026-02-19 19:08:21,793 | INFO  | gp_p1_mig.workflow | 正在推送檔案至裝置: /sdcard/DCIM/Camera ...
+2026-02-19 19:08:24,977 | INFO  | werkzeug | 127.0.0.1 - - [19/Feb/2026 19:08:24] "GET /api/state HTTP/1.1" 200 -
+2026-02-19 19:08:35,373 | INFO  | werkzeug | 127.0.0.1 - - [19/Feb/2026 19:08:35] "GET /api/state HTTP/1.1" 200 -
+2026-02-19 19:08:45,375 | INFO  | werkzeug | 127.0.0.1 - - [19/Feb/2026 19:08:45] "GET /api/state HTTP/1.1" 200 -
+2026-02-19 19:08:55,369 | INFO  | werkzeug | 127.0.0.1 - - [19/Feb/2026 19:08:55] "GET /api/state HTTP/1.1" 200 -
+2026-02-19 19:09:05,372 | INFO  | werkzeug | 127.0.0.1 - - [19/Feb/2026 19:09:05] "GET /api/state HTTP/1.1" 200 -
+2026-02-19 19:09:15,378 | INFO  | werkzeug | 127.0.0.1 - - [19/Feb/2026 19:09:15] "GET /api/state HTTP/1.1" 200 -
