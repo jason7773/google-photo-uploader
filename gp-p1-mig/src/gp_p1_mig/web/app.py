@@ -272,7 +272,7 @@ def api_purge():
     batch_id = data.get("batch_id", "")
     if not batch_id:
         return jsonify({"ok": False, "error": "請指定 Batch ID"}), 400
-    _run_task("Purge", cmd_purge, _root(), _db(), batch_id=batch_id, purge_patched=True)
+    _run_task("Purge", cmd_purge, _root(), _db(), batch_id=batch_id)
     return jsonify({"ok": True})
 
 

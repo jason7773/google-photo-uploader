@@ -125,7 +125,7 @@ function refresh() {
         const tools = data.tools || {};
         let html = '';
         for (const [name, info] of Object.entries(tools)) {
-            const ok = info.path && info.path !== 'NOT_FOUND';
+            const ok = info.path && info.path !== 'NOT FOUND';
             html += `<div class="tool-badge ${ok ? 'ok' : 'missing'}">${ok ? '✓' : '✗'} ${name}</div>`;
         }
         toolDiv.innerHTML = html;

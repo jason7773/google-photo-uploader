@@ -160,11 +160,11 @@ def import_verify_cmd(batch_id: str = typer.Argument(...), result_csv: Path = ty
 
 
 @app.command("purge")
-def purge_cmd(batch_id: str = typer.Argument(...), purge_patched: bool = typer.Option(False), root: Path = typer.Option(None), db: Path = typer.Option(None), verbose: bool = verbose_opt):
+def purge_cmd(batch_id: str = typer.Argument(...), root: Path = typer.Option(None), db: Path = typer.Option(None), verbose: bool = verbose_opt):
     _setup_logging(verbose)
     r = _root(root)
     d = _db(r, db)
-    _run(lambda: cmd_purge(r, d, batch_id=batch_id, purge_patched=purge_patched))
+    _run(lambda: cmd_purge(r, d, batch_id=batch_id))
 
 
 if __name__ == "__main__":
