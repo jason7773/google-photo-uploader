@@ -1,3 +1,3 @@
 [console_scripts]
 gp-p1-mig = gp_p1_mig.cli:app
-gp-p1-mig-ui = gp_p1_mig.ui:main
+gp-p1-mig-ui = gp_p1_mig.web_ui:main
