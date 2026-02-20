@@ -11,6 +11,7 @@ import pytest
 from gp_p1_mig.db import connect, init_db, transaction
 from gp_p1_mig.workflow import (
     MigError,
+    _match_by_title,
     _parse_sidecar,
     cmd_ingest,
     cmd_init,
@@ -114,6 +115,25 @@ def test_reconcile_zero_gps_filtered(workspace, takeout_zip):
     # IMG_0002 had (0,0) → should be None
     assert rows[1]["expected_lat"] is None
     assert rows[1]["expected_lng"] is None
+
+
+def test_reconcile_truncated_filename(workspace, takeout_zip_truncated):
+    """Truncated media + sidecar filenames should still match via JSON title."""
+    root, db_path = workspace
+    cmd_ingest(root, db_path, takeout_zip_truncated)
+    result = cmd_reconcile(db_path)
+    # Should match via title-based fallback and parse the sidecar
+    assert result["matched_sidecar"] >= 1
+    assert result["parsed"] >= 1
+    # Verify the item moved from NEW to READY
+    from gp_p1_mig.db import connect
+    conn = connect(db_path)
+    row = conn.execute(
+        "SELECT patch_status, has_sidecar FROM media_items WHERE original_name LIKE '%instagra%'"
+    ).fetchone()
+    conn.close()
+    assert row["patch_status"] == "READY"
+    assert row["has_sidecar"] == 1
 
 
 # ── ZIP path traversal ──

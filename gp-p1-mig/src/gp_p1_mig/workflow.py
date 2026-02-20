@@ -111,6 +111,28 @@ def _find_sidecar(media_path: Path) -> Path | None:
     return None
 
 
+def _match_by_title(media_path: Path, json_path: Path) -> bool:
+    """Check if a JSON sidecar's ``title`` field matches the media file.
+
+    Google Takeout truncates long filenames at different positions for the
+    media file and its sidecar JSON.  The JSON always contains a ``title``
+    key with the *original* (un-truncated) filename, so we can compare the
+    truncated media stem against the full title stem.
+    """
+    try:
+        data = json.loads(json_path.read_text(encoding="utf-8"))
+        title = data.get("title", "")
+        if not title:
+            return False
+        title_stem = Path(title).stem.lower()
+        media_stem = media_path.stem.lower()
+        # The media filename is a prefix of the original title
+        # (both may be truncated, but the title is always longer or equal)
+        return len(media_stem) >= 10 and title_stem.startswith(media_stem)
+    except (json.JSONDecodeError, OSError):
+        return False
+
+
 def cmd_ingest(
     root: Path, db_path: Path, zip_path: Path,
     run_id: str | None = None, progress: ProgressCallback = None,
@@ -273,6 +295,12 @@ def cmd_reconcile(db_path: Path) -> dict:
                 # Fallback: try direct _find_sidecar (handles .supplemental-metadata.json)
                 if not candidate:
                     candidate = _find_sidecar(media_path)
+                # Fallback: match via JSON title field (handles truncated filenames)
+                if not candidate:
+                    for json_path in by_dir.get(str(media_path.parent), []):
+                        if _match_by_title(media_path, json_path):
+                            candidate = json_path
+                            break
                 if candidate:
                     conn.execute(
                         "UPDATE media_items SET sidecar_path=?, has_sidecar=1, updated_at=CURRENT_TIMESTAMP WHERE id=?",

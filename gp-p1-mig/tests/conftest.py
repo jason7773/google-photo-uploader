@@ -68,3 +68,29 @@ def takeout_zip(tmp_path: Path) -> Path:
             zf.write(f, f.relative_to(media_dir))
 
     return zip_path
+
+
+@pytest.fixture()
+def takeout_zip_truncated(tmp_path: Path) -> Path:
+    """Create a takeout zip with truncated filenames (media vs sidecar differ)."""
+    media_dir = tmp_path / "takeout_trunc"
+    media_dir.mkdir()
+
+    # Media file — truncated at different point than sidecar
+    img = media_dir / "Screenshot_2020-11-12-22-34-03-610_com.instagra.jpg"
+    img.write_bytes(_minimal_jpeg(b"\xAA" * 50))
+
+    # Sidecar JSON — truncated differently, with title containing original name
+    sidecar = media_dir / "Screenshot_2020-11-12-22-34-03-610_com.instagr.json"
+    sidecar.write_text(json.dumps({
+        "title": "Screenshot_2020-11-12-22-34-03-610_com.instagram.android.jpg",
+        "photoTakenTime": {"timestamp": "1609136778"},
+        "geoData": {"latitude": 0.0, "longitude": 0.0},
+    }), encoding="utf-8")
+
+    zip_path = tmp_path / "takeout_trunc.zip"
+    with zipfile.ZipFile(zip_path, "w") as zf:
+        for f in media_dir.rglob("*"):
+            zf.write(f, f.relative_to(media_dir))
+
+    return zip_path
