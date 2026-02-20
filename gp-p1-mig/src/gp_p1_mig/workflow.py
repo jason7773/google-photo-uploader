@@ -62,6 +62,8 @@ def _detect_real_ext(path: Path) -> str:
             return "heic"
         if header[4:8] in (b'ftyp', b'moov', b'mdat'):
             return "mp4"
+        if header[:4] == b'RIFF' and header[8:12] == b'WEBP':
+            return "webp"
     except OSError:
         pass
     return path.suffix.lower().lstrip(".")
