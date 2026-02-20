@@ -136,10 +136,18 @@ def api_state():
         # 1. Total count (all items)
         stats["total"] = conn.execute("SELECT COUNT(*) FROM media_items").fetchone()[0]
         
-        # 2. Pending (NEW/READY)
-        stats["pending"] = conn.execute(
-            "SELECT COUNT(*) FROM media_items WHERE patch_status IN ('NEW', 'READY')"
+        # 2a. NEW (no sidecar yet)
+        stats["new_count"] = conn.execute(
+            "SELECT COUNT(*) FROM media_items WHERE patch_status='NEW'"
         ).fetchone()[0]
+        
+        # 2b. READY (sidecar matched, waiting for patch)
+        stats["ready"] = conn.execute(
+            "SELECT COUNT(*) FROM media_items WHERE patch_status='READY'"
+        ).fetchone()[0]
+        
+        # 2c. Pending total (backwards compat)
+        stats["pending"] = stats["new_count"] + stats["ready"]
         
         # 3. Patched (PATCHED but NOT BATCHED)
         stats["patched"] = conn.execute(

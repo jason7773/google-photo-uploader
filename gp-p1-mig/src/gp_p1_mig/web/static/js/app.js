@@ -114,7 +114,8 @@ function refresh() {
         // Stats
         const s = data.stats || {};
         document.getElementById('statTotal').textContent = s.total || 0;
-        document.getElementById('statPending').textContent = s.pending || 0;
+        document.getElementById('statNew').textContent = s.new_count || 0;
+        document.getElementById('statReady').textContent = s.ready || 0;
         document.getElementById('statPatched').textContent = s.patched || 0;
         document.getElementById('statBatched').textContent = s.batched || 0;
         document.getElementById('statUploaded').textContent = s.uploaded || 0;

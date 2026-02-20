@@ -49,14 +49,18 @@
       <div class="tool-status" id="toolStatus"></div>
 
       <!-- Stats -->
-      <div class="stats-grid" style="grid-template-columns: repeat(6, 1fr);">
+      <div class="stats-grid" style="grid-template-columns: repeat(7, 1fr);">
         <div class="stat-card">
           <div class="stat-value" id="statTotal">0</div>
           <div class="stat-label">總檔案數</div>
         </div>
+        <div class="stat-card" style="border-color: rgba(251,191,36,0.3);">
+          <div class="stat-value" id="statNew" style="color: #fbbf24;">0</div>
+          <div class="stat-label">缺 Sidecar (NEW)</div>
+        </div>
         <div class="stat-card warning">
-          <div class="stat-value" id="statPending">0</div>
-          <div class="stat-label">待修復 (Pending)</div>
+          <div class="stat-value" id="statReady">0</div>
+          <div class="stat-label">待 Patch (READY)</div>
         </div>
         <div class="stat-card success">
           <div class="stat-value" id="statPatched">0</div>
