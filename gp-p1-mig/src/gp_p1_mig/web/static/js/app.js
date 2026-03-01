@@ -205,12 +205,16 @@ function closeModal(id) {
 }
 
 function runIngest() {
-    let zipPath = document.getElementById('ingestZipPath').value.trim();
-    if (!zipPath) { addLog('ERROR', '請輸入 ZIP 路徑'); return; }
-    // Strip surrounding quotes if present (from Windows Explorer copy)
-    zipPath = zipPath.replace(/^["']|["']$/g, '');
+    const raw = document.getElementById('ingestZipPath').value.trim();
+    if (!raw) { addLog('ERROR', '請輸入至少一個 ZIP 路徑'); return; }
+    // Split by newline or semicolon, strip quotes and whitespace, filter empties
+    const paths = raw.split(/[\n;]+/)
+        .map(p => p.trim().replace(/^["']|["']$/g, ''))
+        .filter(p => p.length > 0);
+    if (!paths.length) { addLog('ERROR', '請輸入至少一個 ZIP 路徑'); return; }
     closeModal('ingestModal');
-    api('ingest', { zip_path: zipPath });
+    addLog('INFO', '匯入 ' + paths.length + ' 個 ZIP: ' + paths.map(p => p.split('\\').pop()).join(', '));
+    api('ingest', { zip_paths: paths });
 }
 
 // ── Batch Actions ──

@@ -136,47 +136,71 @@ def _match_by_title(media_path: Path, json_path: Path) -> bool:
 
 
 def cmd_ingest(
-    root: Path, db_path: Path, zip_path: Path,
+    root: Path, db_path: Path, zip_path: Path | None = None,
     run_id: str | None = None, progress: ProgressCallback = None,
+    zip_paths: list[Path] | None = None,
 ) -> dict:
+    """Ingest one or more Takeout ZIP files.
+
+    Accepts either a single ``zip_path`` (backward compatible) or a list of
+    ``zip_paths``.  When both are provided, ``zip_paths`` takes precedence.
+    """
     ensure_workspace(root)
     run_id = run_id or datetime.now().strftime("%Y%m%d-%H%M%S")
+
+    # Normalize to a list
+    if zip_paths:
+        zips = list(zip_paths)
+    elif zip_path:
+        zips = [zip_path]
+    else:
+        raise MigError("請指定至少一個 ZIP 檔案路徑")
+
     # Extract all ZIPs into the SAME directory so cross-ZIP folders merge
     # (e.g. "2013年的相片" from ZIP#1 and ZIP#2 will end up together)
     extract_root = root / "data" / "work" / "extracted"
     extract_root.mkdir(parents=True, exist_ok=True)
-    log.info("開始匯入: zip=%s, run_id=%s, extract_to=%s", zip_path.name, run_id, extract_root)
+    log.info(
+        "開始匯入 %d 個 ZIP: %s, run_id=%s, extract_to=%s",
+        len(zips), ", ".join(z.name for z in zips), run_id, extract_root,
+    )
 
-    with zipfile.ZipFile(zip_path, "r") as zf:
-        # ZIP path traversal protection
-        extract_root_str = str(extract_root.resolve())
-        for member in zf.namelist():
-            resolved = (extract_root / member).resolve()
-            if not str(resolved).startswith(extract_root_str):
-                raise MigError(f"Zip path traversal detected: {member}")
-        zf.extractall(extract_root)
+    # --- Phase 1: Extract all ZIPs and collect media files ---
+    # Each entry is (full_path, source_zip_path)
+    media_files: list[tuple[Path, Path]] = []
+    for zp in zips:
+        log.info("解壓中: %s ...", zp.name)
+        with zipfile.ZipFile(zp, "r") as zf:
+            # ZIP path traversal protection
+            extract_root_str = str(extract_root.resolve())
+            for member in zf.namelist():
+                resolved = (extract_root / member).resolve()
+                if not str(resolved).startswith(extract_root_str):
+                    raise MigError(f"Zip path traversal detected: {member}")
+            zf.extractall(extract_root)
 
-        # Collect media files ONLY from this ZIP (not the entire extracted dir)
-        media_files = []
-        for member in zf.namelist():
-            if member.endswith('/') or member.endswith('\\'):
-                continue
-            full_path = (extract_root / member).resolve()
-            if full_path.is_file() and full_path.suffix.lower() in MEDIA_EXTS:
-                media_files.append(full_path)
-    log.info("ZIP 解壓完成: %s", extract_root)
+            # Collect media files ONLY from this ZIP (not the entire extracted dir)
+            for member in zf.namelist():
+                if member.endswith('/') or member.endswith('\\'):
+                    continue
+                full_path = (extract_root / member).resolve()
+                if full_path.is_file() and full_path.suffix.lower() in MEDIA_EXTS:
+                    media_files.append((full_path, zp))
+        log.info("ZIP 解壓完成: %s", zp.name)
 
     total = len(media_files)
-    log.info("偵測到 %d 個媒體檔案 (僅此 ZIP)", total)
+    log.info("偵測到 %d 個媒體檔案 (共 %d 個 ZIP)", total, len(zips))
 
+    # --- Phase 2: Register media files into DB ---
     ingested = 0
     duplicates = 0
+    source_zips_str = ", ".join(str(z) for z in zips)
     with transaction(db_path) as conn:
         conn.execute(
             "INSERT INTO ingest_runs(run_id, source_zip, extracted_root, status) VALUES (?, ?, ?, 'DONE')",
-            (run_id, str(zip_path), str(extract_root)),
+            (run_id, source_zips_str, str(extract_root)),
         )
-        for i, path in enumerate(media_files, 1):
+        for i, (path, src_zip) in enumerate(media_files, 1):
             if progress:
                 progress(i, total, path.name)
             content_id = _sha256(path)
@@ -192,7 +216,7 @@ def cmd_ingest(
                         duplicates += 1
                         conn.execute(
                             "INSERT INTO duplicates(content_id, dup_path, source_zip, ingest_run_id) VALUES (?, ?, ?, ?)",
-                            (content_id, str(path), str(zip_path), run_id),
+                            (content_id, str(path), str(src_zip), run_id),
                         )
                         log.info("跳過已 PURGED 項目: %s", path.name)
                     else:
@@ -207,7 +231,7 @@ def cmd_ingest(
                     duplicates += 1
                     conn.execute(
                         "INSERT INTO duplicates(content_id, dup_path, source_zip, ingest_run_id) VALUES (?, ?, ?, ?)",
-                        (content_id, str(path), str(zip_path), run_id),
+                        (content_id, str(path), str(src_zip), run_id),
                     )
                 continue
 
@@ -222,7 +246,7 @@ def cmd_ingest(
                     content_id,
                     path.name,
                     path.suffix.lower().lstrip("."),
-                    str(zip_path),
+                    str(src_zip),
                     str(path),
                     str(sidecar) if sidecar else None,
                     1 if sidecar else 0,
@@ -232,7 +256,14 @@ def cmd_ingest(
             ingested += 1
 
     log.info("匯入完成: scanned=%d, ingested=%d, duplicates=%d", total, ingested, duplicates)
-    return {"run_id": run_id, "extract_root": str(extract_root), "scanned": total, "ingested": ingested, "duplicates": duplicates}
+    return {
+        "run_id": run_id,
+        "extract_root": str(extract_root),
+        "zip_count": len(zips),
+        "scanned": total,
+        "ingested": ingested,
+        "duplicates": duplicates,
+    }
 
 
 def _normalize_stem(name: str) -> str:

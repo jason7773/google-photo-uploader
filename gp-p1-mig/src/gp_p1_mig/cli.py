@@ -89,13 +89,14 @@ def init_cmd(root: Path = typer.Option(None), db: Path = typer.Option(None), ver
 
 
 @app.command("ingest")
-def ingest_cmd(zip_path: Path = typer.Argument(...), root: Path = typer.Option(None), db: Path = typer.Option(None), run_id: str = typer.Option(None), verbose: bool = verbose_opt):
+def ingest_cmd(zip_paths: list[Path] = typer.Argument(..., help="One or more Takeout ZIP files"), root: Path = typer.Option(None), db: Path = typer.Option(None), run_id: str = typer.Option(None), verbose: bool = verbose_opt):
     _setup_logging(verbose)
     r = _root(root)
     d = _db(r, db)
+    resolved = [z.resolve() for z in zip_paths]
     prog, cb = _make_progress()
     with prog:
-        _run(lambda: cmd_ingest(r, d, zip_path.resolve(), run_id=run_id, progress=cb))
+        _run(lambda: cmd_ingest(r, d, zip_paths=resolved, run_id=run_id, progress=cb))
 
 
 @app.command("reconcile")

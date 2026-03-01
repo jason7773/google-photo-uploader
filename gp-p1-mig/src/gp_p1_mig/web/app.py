@@ -210,10 +210,16 @@ def api_init():
 @app.route("/api/ingest", methods=["POST"])
 def api_ingest():
     data = request.json or {}
-    zip_path = data.get("zip_path", "")
-    if not zip_path:
-        return jsonify({"ok": False, "error": "請指定 ZIP 路徑"}), 400
-    _run_task("Ingest", cmd_ingest, _root(), _db(), Path(zip_path).resolve(), progress=_progress_callback)
+    # Support both: zip_paths (list) and legacy zip_path (single string)
+    raw_paths = data.get("zip_paths") or []
+    if not raw_paths:
+        single = data.get("zip_path", "")
+        if single:
+            raw_paths = [single]
+    if not raw_paths:
+        return jsonify({"ok": False, "error": "請指定至少一個 ZIP 路徑"}), 400
+    resolved = [Path(p).resolve() for p in raw_paths]
+    _run_task("Ingest", cmd_ingest, _root(), _db(), zip_paths=resolved, progress=_progress_callback)
     return jsonify({"ok": True})
 
 

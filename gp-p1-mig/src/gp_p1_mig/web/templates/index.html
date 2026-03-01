@@ -350,8 +350,8 @@ FA6B90303015    device</code></pre>
     <div class="modal">
       <h2>匯入 Takeout ZIP</h2>
       <div class="form-group">
-        <label>ZIP 檔案路徑</label>
-        <input type="text" id="ingestZipPath" class="input full" placeholder="C:\Users\...\takeout.zip">
+        <label>ZIP 檔案路徑（每行一個，支援同時匯入多個）</label>
+        <textarea id="ingestZipPath" class="input full" rows="4" placeholder="C:\Users\...\takeout-001.zip&#10;C:\Users\...\takeout-002.zip"></textarea>
       </div>
       <div class="modal-actions">
         <button class="btn" onclick="runIngest()">開始匯入</button>
