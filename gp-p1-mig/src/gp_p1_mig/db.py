@@ -78,6 +78,8 @@ CREATE TABLE IF NOT EXISTS ingest_runs (
 CREATE INDEX IF NOT EXISTS idx_media_patch_status ON media_items(patch_status);
 CREATE INDEX IF NOT EXISTS idx_media_batch_id ON media_items(batch_id);
 CREATE INDEX IF NOT EXISTS idx_batch_status ON batches(status);
+-- Composite index: speeds up cmd_patch / cmd_make_batch queries on (patch_status, batch_id)
+CREATE INDEX IF NOT EXISTS idx_media_status_batch ON media_items(patch_status, batch_id);
 
 -- Schema versioning for future migrations
 CREATE TABLE IF NOT EXISTS schema_version (
@@ -90,7 +92,12 @@ INSERT OR IGNORE INTO schema_version(version) VALUES (1);
 # Future migrations: add entries as (version, sql) tuples.
 # Each migration should be idempotent (use IF NOT EXISTS, etc.)
 _MIGRATIONS: list[tuple[int, str]] = [
-    # (2, "ALTER TABLE media_items ADD COLUMN new_col TEXT;"),
+    # version 2: add composite index + switch to WAL for existing databases
+    (2, """
+        CREATE INDEX IF NOT EXISTS idx_media_status_batch
+            ON media_items(patch_status, batch_id);
+        PRAGMA journal_mode=WAL;
+    """),
 ]
 
 
@@ -99,6 +106,18 @@ def connect(db_path: Path) -> sqlite3.Connection:
     conn = sqlite3.connect(db_path)
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA foreign_keys=ON")
+    # ── Performance tuning ──────────────────────────────────────────────────
+    # WAL: readers don't block writer; writer doesn't block readers.
+    # Essential when the web UI polls /api/state while a task is running.
+    conn.execute("PRAGMA journal_mode=WAL")
+    # NORMAL: safe on power-loss (WAL checkpoint survives), faster than FULL
+    conn.execute("PRAGMA synchronous=NORMAL")
+    # 64 MB page cache (negative value = KiB)
+    conn.execute("PRAGMA cache_size=-65536")
+    # Keep temp tables / sort buffers in RAM instead of a temp file
+    conn.execute("PRAGMA temp_store=MEMORY")
+    # 256 MB memory-mapped I/O — reduces syscall overhead on large DB scans
+    conn.execute("PRAGMA mmap_size=268435456")
     return conn
 
 
