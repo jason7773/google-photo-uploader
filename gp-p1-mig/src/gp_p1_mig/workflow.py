@@ -14,6 +14,7 @@ import uuid
 import zipfile
 from datetime import datetime, timezone
 from pathlib import Path
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import Callable, Iterable
 
 from .db import connect, init_db, transaction
@@ -97,6 +98,41 @@ def _sha256(path: Path) -> str:
         for chunk in iter(lambda: f.read(1024 * 1024), b""):
             h.update(chunk)
     return h.hexdigest()
+
+
+# Parallel workers for hash computation.
+# 8 is optimal for SSD; reduce to 2–4 for HDD to avoid seek thrashing.
+_INGEST_WORKERS = 8
+
+
+def _hash_and_detect(path: Path) -> tuple[str, str]:
+    """Compute SHA-256 hash and detect real extension in a single file open.
+
+    Combines ``_sha256`` + ``_detect_real_ext`` into one pass to halve I/O.
+    Returns ``(sha256_hex, ext_without_dot)``.
+    Safe to call from multiple threads (no shared mutable state).
+    """
+    h = hashlib.sha256()
+    fallback = path.suffix.lower().lstrip(".")
+    with path.open("rb") as f:
+        first = f.read(1024 * 1024)
+        h.update(first)
+        for chunk in iter(lambda: f.read(1024 * 1024), b""):
+            h.update(chunk)
+    magic = first[:12]
+    if magic[:3] == b'\xff\xd8\xff':
+        ext = "jpg"
+    elif magic[:8] == b'\x89PNG\r\n\x1a\n':
+        ext = "png"
+    elif magic[4:12] in (b'ftypheic', b'ftypmif1'):
+        ext = "heic"
+    elif magic[4:8] in (b'ftyp', b'moov', b'mdat'):
+        ext = "mp4"
+    elif magic[:4] == b'RIFF' and magic[8:12] == b'WEBP':
+        ext = "webp"
+    else:
+        ext = fallback
+    return h.hexdigest(), ext
 
 
 def _find_sidecar(media_path: Path) -> Path | None:
@@ -191,7 +227,31 @@ def cmd_ingest(
     total = len(media_files)
     log.info("偵測到 %d 個媒體檔案 (共 %d 個 ZIP)", total, len(zips))
 
-    # --- Phase 2: Register media files into DB ---
+    # ── Phase 2a: Parallel hash + extension detection (I/O bound) ────────────
+    # ThreadPoolExecutor: each worker reads one file for SHA-256 + magic byte
+    # detection. DB writes remain sequential on the main thread.
+    log.info("正在並行計算 %d 個檔案的雜湊値 (workers=%d)...", total, _INGEST_WORKERS)
+    hashed: list[tuple[Path, Path, str, str]] = []  # (path, src_zip, content_id, real_ext)
+    computed = 0
+    with ThreadPoolExecutor(max_workers=_INGEST_WORKERS) as pool:
+        future_map = {
+            pool.submit(_hash_and_detect, path): (path, src_zip)
+            for path, src_zip in media_files
+        }
+        for future in as_completed(future_map):
+            path, src_zip = future_map[future]
+            computed += 1
+            if progress:
+                progress(computed, total, path.name)
+            try:
+                content_id, real_ext = future.result()
+            except Exception as exc:
+                log.warning("雜湊計算失敗 (%s): %s — 使用備援方式", path.name, exc)
+                content_id = _sha256(path)
+                real_ext = path.suffix.lower().lstrip(".")
+            hashed.append((path, src_zip, content_id, real_ext))
+
+    # ── Phase 2b: Sequential DB writes ──────────────────────────────────────────────
     ingested = 0
     duplicates = 0
     source_zips_str = ", ".join(str(z) for z in zips)
@@ -200,10 +260,7 @@ def cmd_ingest(
             "INSERT INTO ingest_runs(run_id, source_zip, extracted_root, status) VALUES (?, ?, ?, 'DONE')",
             (run_id, source_zips_str, str(extract_root)),
         )
-        for i, (path, src_zip) in enumerate(media_files, 1):
-            if progress:
-                progress(i, total, path.name)
-            content_id = _sha256(path)
+        for path, src_zip, content_id, real_ext in hashed:
             sidecar = _find_sidecar(path)
             row = conn.execute("SELECT content_id, extracted_path, patch_status FROM media_items WHERE content_id=?", (content_id,)).fetchone()
             if row:
@@ -211,7 +268,6 @@ def cmd_ingest(
                 old_path = Path(row['extracted_path']) if row['extracted_path'] else None
                 if old_path is None or not old_path.exists():
                     # PURGED items should NOT be updated — they are already uploaded.
-                    # Treat the new file as a duplicate to be cleaned up later.
                     if row['patch_status'] == 'PURGED':
                         duplicates += 1
                         conn.execute(
@@ -225,7 +281,7 @@ def cmd_ingest(
                             "UPDATE media_items SET extracted_path=?, sidecar_path=?, has_sidecar=?, updated_at=CURRENT_TIMESTAMP WHERE content_id=?",
                             (str(path), str(sidecar) if sidecar else None, 1 if sidecar else 0, content_id),
                         )
-                        log.info("更新遺失檔案路徑: %s", path.name)
+                        log.info("更新遗失檔案路徑: %s", path.name)
                         ingested += 1  # Count as restored
                 else:
                     duplicates += 1
@@ -245,7 +301,7 @@ def cmd_ingest(
                 (
                     content_id,
                     path.name,
-                    path.suffix.lower().lstrip("."),
+                    real_ext,
                     str(src_zip),
                     str(path),
                     str(sidecar) if sidecar else None,
