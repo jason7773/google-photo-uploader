@@ -498,25 +498,20 @@ def _verify_patch(
     exiftool_bin: str, dst: Path,
     expected_epoch: int | None,
     expected_lat: float | None, expected_lng: float | None,
-    session: ExifToolSession | None = None,
 ) -> str | None:
     """Read back metadata from *dst* and compare against expectations.
 
-    Accepts an optional *session* to avoid spawning a new ExifTool process.
+    Always uses a fresh ``exiftool`` subprocess (not the session) so it can
+    never desync the session state on timeout.
     Returns ``None`` on success or a human-readable diff string on mismatch.
     """
     read_args = ["-j", "-n",
                  "-DateTimeOriginal", "-GPSLatitude", "-GPSLongitude",
                  str(dst)]
-    if session is not None:
-        try:
-            _, stdout = session.execute(read_args)
-        except Exception as exc:
-            return f"exiftool session read-back error: {exc}"
-    else:
-        rc, stdout, _ = _run([exiftool_bin] + read_args)
-        if rc != 0:
-            return "exiftool read-back failed"
+    # Always use _run for read-back: avoids session desync on timeout/error
+    rc, stdout, _ = _run([exiftool_bin] + read_args)
+    if rc != 0:
+        return "exiftool read-back failed"
     try:
         data = json.loads(stdout)
         if not data:
@@ -647,9 +642,22 @@ def cmd_patch(
                     # ── Fast path: reuse running ExifTool process ──
                     try:
                         rc, _ = session.execute(et_args)
+                    except TimeoutError as exc:
+                        log.warning("ExifTool session 進時 (%s)，重新啟動 session...", exc)
+                        try:
+                            session.close()
+                        except Exception:
+                            pass
+                        try:
+                            session = ExifToolSession(exiftool_bin)
+                            log.info("ExifTool session 重啟成功 (pid=%d)", session._proc.pid)
+                        except Exception as exc2:
+                            log.warning("重啟失敗，退回單次呼叫模式: %s", exc2)
+                            session = None
+                        rc, _, _ = _run([exiftool_bin] + et_args)  # fallback for this file
                     except Exception as exc:
                         log.warning("ExifTool session 錯誤，退回單次呼叫: %s", exc)
-                        session = None   # disable for remainder
+                        session = None
                         rc, _, _ = _run([exiftool_bin] + et_args)
                 else:
                     # ── Fallback: spawn per-file process ──
@@ -687,7 +695,6 @@ def cmd_patch(
                 verify_err = _verify_patch(
                     exiftool_bin, dst,
                     r["expected_taken_epoch"], r["expected_lat"], r["expected_lng"],
-                    session=session,
                 )
                 if verify_err:
                     if not err:

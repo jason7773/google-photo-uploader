@@ -11,12 +11,23 @@ Protocol overview
    - Write args one per line to stdin, terminate with ``-execute``
    - Read stdout until the ``{ready}`` (or ``{readyN}``) sentinel appears
 3. Shutdown: write ``-stay_open\\nFalse`` to stdin
+
+Timeout safety
+--------------
+A background daemon thread continuously reads stdout into a ``queue.Queue``.
+``execute()`` pops from that queue with a configurable ``timeout`` so the
+caller is never blocked forever by a hung or slow ExifTool invocation.
+If a timeout fires, the session is in an inconsistent state and **must** be
+closed; the caller should restart it or fall back to per-process mode.
 """
 from __future__ import annotations
 
 import logging
+import queue
 import re
 import subprocess
+import threading
+import time
 from pathlib import Path
 
 log = logging.getLogger(__name__)
@@ -24,9 +35,15 @@ log = logging.getLogger(__name__)
 # Matches the {ready} or {readyN} sentinel that ExifTool prints after each command.
 _READY_RE = re.compile(r'^\{ready(\d*)\}\s*$')
 
+# Default timeout (seconds) for a single ExifTool command.
+DEFAULT_TIMEOUT = 60.0
+
 
 class ExifToolSession:
     """Keep one ExifTool process alive across many metadata write/read commands.
+
+    Uses a background daemon thread to read stdout so that ``execute()`` can
+    apply a wall-clock timeout and never block the main thread indefinitely.
 
     Usage::
 
@@ -37,6 +54,9 @@ class ExifToolSession:
 
     If ExifTool cannot be started (old version, bad path, etc.) the constructor
     raises ``RuntimeError`` and the caller should fall back to per-process mode.
+
+    If ``execute()`` raises ``TimeoutError``, the session is corrupt; close it
+    and start a new one (or fall back to per-process) for remaining files.
     """
 
     def __init__(self, exiftool_bin: str) -> None:
@@ -46,7 +66,7 @@ class ExifToolSession:
             [exiftool_bin, "-stay_open", "True", "-@", "-"],
             stdin=subprocess.PIPE,
             stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,   # capture separately; not per-command delimited
+            stderr=subprocess.PIPE,   # captured but not per-command delimited
             text=True,
             encoding="utf-8",
             errors="replace",
@@ -55,43 +75,86 @@ class ExifToolSession:
             raise RuntimeError(
                 f"ExifTool process failed to start immediately: {exiftool_bin}"
             )
+
+        # Background daemon thread: reads stdout → queue so we can timeout.
+        self._q: queue.Queue[str | None] = queue.Queue()
+        self._reader = threading.Thread(target=self._read_loop, daemon=True,
+                                        name="exiftool-stdout-reader")
+        self._reader.start()
+
         log.debug("ExifTool -stay_open session ready (pid=%d)", self._proc.pid)
+
+    # ── Background reader ─────────────────────────────────────────────────────
+
+    def _read_loop(self) -> None:
+        """Daemon thread: pump stdout lines into ``self._q``.
+
+        Puts ``None`` into the queue on EOF so ``execute()`` can detect
+        that the process has died.
+        """
+        try:
+            assert self._proc.stdout is not None
+            while True:
+                line = self._proc.stdout.readline()
+                if not line:          # EOF — process ended
+                    self._q.put(None)
+                    return
+                self._q.put(line)
+        except Exception:
+            self._q.put(None)
 
     # ── Public API ────────────────────────────────────────────────────────────
 
-    def execute(self, args: list[str]) -> tuple[int, str]:
+    def execute(self, args: list[str], timeout: float = DEFAULT_TIMEOUT) -> tuple[int, str]:
         """Send *args* to ExifTool and return ``(rc, stdout_text)``.
 
-        *args* must NOT include the exiftool binary itself (the session already
-        has a running process).  They are forwarded as-is, one per stdin line,
-        followed by ``-execute``.
+        *args* must NOT include the exiftool binary itself.  They are forwarded
+        as-is, one per stdin line, followed by ``-execute``.
 
-        ``rc`` is 0 on success.  Many ExifTool versions always emit ``{ready}``
-        even on minor errors; use the ``_verify_patch`` round-trip to confirm
-        metadata was actually written correctly.
+        Raises
+        ------
+        TimeoutError
+            ExifTool did not print ``{ready}`` within *timeout* seconds.
+            The session is now in an inconsistent state — close and restart it.
+        RuntimeError
+            ExifTool stdout was closed (process crashed).
         """
         if self._proc.poll() is not None:
             raise RuntimeError(
-                f"ExifTool session (pid={self._proc.pid}) terminated unexpectedly"
+                f"ExifTool session (pid={self._proc.pid}) has already terminated"
             )
 
-        # Build the stdin payload: one arg per line, terminated by -execute
+        # Write command to stdin
         payload = "\n".join(args) + "\n-execute\n"
         assert self._proc.stdin is not None
         self._proc.stdin.write(payload)
         self._proc.stdin.flush()
 
-        # Read stdout until the {ready} sentinel
-        assert self._proc.stdout is not None
+        # Read stdout from queue until {ready} sentinel or timeout
         out_parts: list[str] = []
         rc = 0
+        deadline = time.monotonic() + timeout
+
         while True:
-            line = self._proc.stdout.readline()
-            if not line:
-                # EOF — ExifTool crashed or was killed
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                raise TimeoutError(
+                    f"ExifTool did not respond within {timeout:.0f}s "
+                    f"(last arg: {args[-1] if args else '?'})"
+                )
+            try:
+                line = self._q.get(timeout=remaining)
+            except queue.Empty:
+                raise TimeoutError(
+                    f"ExifTool did not respond within {timeout:.0f}s "
+                    f"(last arg: {args[-1] if args else '?'})"
+                )
+
+            if line is None:  # EOF — process died
                 raise RuntimeError(
                     "ExifTool stdout closed unexpectedly — process may have crashed"
                 )
+
             m = _READY_RE.match(line)
             if m:
                 suffix = m.group(1)
@@ -109,7 +172,7 @@ class ExifToolSession:
                 self._proc.stdin.write("-stay_open\nFalse\n")
                 self._proc.stdin.flush()
                 self._proc.wait(timeout=10)
-                log.debug("ExifTool session closed (pid=%d)", self._proc.pid)
+                log.debug("ExifTool session closed gracefully (pid=%d)", self._proc.pid)
         except Exception as exc:
             log.debug("ExifTool session close error — killing process: %s", exc)
             try:
