@@ -132,47 +132,41 @@ def api_state():
         pass
     try:
         conn = connect(d)
-        
-        # 1. Total count (all items)
-        stats["total"] = conn.execute("SELECT COUNT(*) FROM media_items").fetchone()[0]
-        
-        # 2a. NEW (no sidecar yet)
-        stats["new_count"] = conn.execute(
-            "SELECT COUNT(*) FROM media_items WHERE patch_status='NEW'"
-        ).fetchone()[0]
-        
-        # 2b. READY (sidecar matched, waiting for patch)
-        stats["ready"] = conn.execute(
-            "SELECT COUNT(*) FROM media_items WHERE patch_status='READY'"
-        ).fetchone()[0]
-        
-        # 2c. Pending total (backwards compat)
-        stats["pending"] = stats["new_count"] + stats["ready"]
-        
-        # 3. Patched (PATCHED but NOT BATCHED)
-        stats["patched"] = conn.execute(
-            "SELECT COUNT(*) FROM media_items WHERE patch_status='PATCHED' AND batch_id IS NULL"
-        ).fetchone()[0]
-        
-        # 4. Batched (In batches but not yet verified/purged)
-        stats["batched"] = conn.execute(
+
+        # ── Single GROUP BY replaces 6 separate COUNT(*) queries ──────────────
+        # Each row: patch_status, cnt (total for status), no_batch (PATCHED with no batch)
+        counts: dict[str, int] = {}
+        no_batch: dict[str, int] = {}
+        for row in conn.execute(
+            """
+            SELECT patch_status,
+                   COUNT(*) AS cnt,
+                   SUM(CASE WHEN batch_id IS NULL THEN 1 ELSE 0 END) AS no_batch
+            FROM media_items
+            GROUP BY patch_status
+            """
+        ).fetchall():
+            counts[row["patch_status"]] = row["cnt"]
+            no_batch[row["patch_status"]] = row["no_batch"]
+
+        stats["total"]     = sum(counts.values())
+        stats["new_count"] = counts.get("NEW", 0)
+        stats["ready"]     = counts.get("READY", 0)
+        stats["pending"]   = stats["new_count"] + stats["ready"]
+        stats["patched"]   = no_batch.get("PATCHED", 0)   # PATCHED with no batch_id
+        stats["uploaded"]  = counts.get("PURGED", 0)
+        stats["failed"]    = counts.get("FAILED", 0)
+
+        # Batched = items assigned to batches not yet VERIFIED/PURGED
+        row_b = conn.execute(
             """
             SELECT COUNT(*) FROM media_items m
             JOIN batches b ON m.batch_id = b.batch_id
             WHERE b.status NOT IN ('VERIFIED', 'PURGED')
             """
-        ).fetchone()[0]
-        
-        # 5. Uploaded (items with patch_status=PURGED — includes batch-purged + manually marked)
-        stats["uploaded"] = conn.execute(
-            "SELECT COUNT(*) FROM media_items WHERE patch_status='PURGED'"
-        ).fetchone()[0]
-        
-        # 6. Failed
-        stats["failed"] = conn.execute(
-            "SELECT COUNT(*) FROM media_items WHERE patch_status='FAILED'"
-        ).fetchone()[0]
-        
+        ).fetchone()
+        stats["batched"] = row_b[0] if row_b else 0
+
         for row in conn.execute(
             "SELECT batch_id, status, total_files, total_bytes, created_at FROM batches ORDER BY created_at DESC"
         ).fetchall():
