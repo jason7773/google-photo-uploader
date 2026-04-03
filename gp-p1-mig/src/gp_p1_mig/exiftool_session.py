@@ -66,7 +66,7 @@ class ExifToolSession:
             [exiftool_bin, "-stay_open", "True", "-@", "-"],
             stdin=subprocess.PIPE,
             stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,   # captured but not per-command delimited
+            stderr=subprocess.PIPE,   # must drain — see _drain_stderr
             text=True,
             encoding="utf-8",
             errors="replace",
@@ -81,6 +81,16 @@ class ExifToolSession:
         self._reader = threading.Thread(target=self._read_loop, daemon=True,
                                         name="exiftool-stdout-reader")
         self._reader.start()
+
+        # CRITICAL: drain stderr in a background thread.
+        # ExifTool writes warnings/-verbose output to stderr.  The OS pipe
+        # buffer is only ~4 KB on Windows; once full, ExifTool blocks on every
+        # stderr.write() and never prints {ready} to stdout — causing the
+        # session to hang after processing a few dozen files.
+        self._stderr_thread = threading.Thread(target=self._drain_stderr,
+                                               daemon=True,
+                                               name="exiftool-stderr-drainer")
+        self._stderr_thread.start()
 
         log.debug("ExifTool -stay_open session ready (pid=%d)", self._proc.pid)
 
@@ -102,6 +112,29 @@ class ExifToolSession:
                 self._q.put(line)
         except Exception:
             self._q.put(None)
+
+    def _drain_stderr(self) -> None:
+        """Daemon thread: continuously read and discard ExifTool's stderr.
+
+        This is NOT optional.  If stderr is not drained, the OS pipe buffer
+        (~4 KB on Windows) fills up after a few dozen files with warnings.
+        ExifTool then blocks on its next stderr write, which means it never
+        prints ``{ready}`` to stdout — hanging the session permanently.
+
+        We log at DEBUG level so diagnostics remain available without
+        cluttering normal output.
+        """
+        try:
+            assert self._proc.stderr is not None
+            while True:
+                line = self._proc.stderr.readline()
+                if not line:
+                    return
+                line = line.rstrip()
+                if line:
+                    log.debug("[exiftool stderr] %s", line)
+        except Exception:
+            pass
 
     # ── Public API ────────────────────────────────────────────────────────────
 
