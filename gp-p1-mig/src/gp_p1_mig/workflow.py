@@ -18,6 +18,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import Callable, Iterable
 
 from .db import connect, init_db, transaction
+from .exiftool_session import ExifToolSession
 from .tools import find_exiftool, find_ffmpeg, verify_tools
 
 log = logging.getLogger(__name__)
@@ -483,18 +484,25 @@ def _verify_patch(
     exiftool_bin: str, dst: Path,
     expected_epoch: int | None,
     expected_lat: float | None, expected_lng: float | None,
+    session: ExifToolSession | None = None,
 ) -> str | None:
     """Read back metadata from *dst* and compare against expectations.
 
+    Accepts an optional *session* to avoid spawning a new ExifTool process.
     Returns ``None`` on success or a human-readable diff string on mismatch.
     """
-    rc, stdout, _ = _run([
-        exiftool_bin, "-j", "-n",   # -n = numeric output (no formatting)
-        "-DateTimeOriginal", "-GPSLatitude", "-GPSLongitude",
-        str(dst),
-    ])
-    if rc != 0:
-        return "exiftool read-back failed"
+    read_args = ["-j", "-n",
+                 "-DateTimeOriginal", "-GPSLatitude", "-GPSLongitude",
+                 str(dst)]
+    if session is not None:
+        try:
+            _, stdout = session.execute(read_args)
+        except Exception as exc:
+            return f"exiftool session read-back error: {exc}"
+    else:
+        rc, stdout, _ = _run([exiftool_bin] + read_args)
+        if rc != 0:
+            return "exiftool read-back failed"
     try:
         data = json.loads(stdout)
         if not data:
@@ -557,6 +565,15 @@ def cmd_patch(
     fail = 0
     verified = 0
     BATCH_SIZE = 50
+
+    # ── Try to start ExifTool -stay_open session (10–30x faster than per-process) ──
+    session: ExifToolSession | None = None
+    try:
+        session = ExifToolSession(exiftool_bin)
+        log.info("ExifTool -stay_open session 已啟動 (pid=%d)", session._proc.pid)
+    except Exception as exc:
+        log.warning("無法啟動 ExifTool session，退回單次呼叫模式: %s", exc)
+
     conn = connect(db_path)
     try:
         rows = conn.execute(
@@ -568,10 +585,10 @@ def cmd_patch(
             if progress:
                 progress(idx, total, Path(r["extracted_path"]).name)
             src = Path(r["extracted_path"])
-            
+
             if not src.exists():
                 err = f"source file missing: {src}"
-                log.warning("❌ 原始檔案遺失: %s", src)
+                log.warning("❌ 原始檔案遗失: %s", src)
                 conn.execute(
                     "UPDATE media_items SET patch_status='FAILED', patch_error=?, updated_at=CURRENT_TIMESTAMP WHERE id=?",
                     (err, r["id"]),
@@ -597,28 +614,37 @@ def cmd_patch(
             is_image = f".{ext}" in IMAGE_EXTS
 
             if is_image:
-                # ── Image patch via exiftool ──
-                cmd = [exiftool_bin, "-overwrite_original", "-m"]
+                # ── Image patch via ExifTool ──
+                et_args = ["-overwrite_original", "-m"]
                 if r["expected_taken_epoch"]:
                     ts = datetime.fromtimestamp(r["expected_taken_epoch"], tz=timezone.utc).strftime("%Y:%m:%d %H:%M:%S")
-                    cmd += [f"-DateTimeOriginal={ts}"]
+                    et_args += [f"-DateTimeOriginal={ts}"]
                 if r["expected_lat"] is not None and r["expected_lng"] is not None:
                     lat, lng = r["expected_lat"], r["expected_lng"]
-                    cmd += [
+                    et_args += [
                         f"-GPSLatitude={abs(lat)}",
                         f"-GPSLatitudeRef={'N' if lat >= 0 else 'S'}",
                         f"-GPSLongitude={abs(lng)}",
                         f"-GPSLongitudeRef={'E' if lng >= 0 else 'W'}",
                     ]
-                cmd += [str(dst)]
-                rc, stdout_txt, stderr = _run(cmd)
+                et_args += [str(dst)]
+
+                if session is not None:
+                    # ── Fast path: reuse running ExifTool process ──
+                    try:
+                        rc, _ = session.execute(et_args)
+                    except Exception as exc:
+                        log.warning("ExifTool session 錯誤，退回單次呼叫: %s", exc)
+                        session = None   # disable for remainder
+                        rc, _, _ = _run([exiftool_bin] + et_args)
+                else:
+                    # ── Fallback: spawn per-file process ──
+                    rc, _, _ = _run([exiftool_bin] + et_args)
+
                 if rc != 0:
-                    # ExifTool may exit with rc=1 for OtherImageStart errors
-                    # but still successfully write metadata. Don't set err here;
-                    # let the post-patch verification determine actual success.
-                    log.warning("ExifTool 回傳非零 (%d)，將以驗證結果為準: %s", rc, src.name)
+                    log.warning("ExifTool 回傅非零 (%d)，將以驗證結果為準: %s", rc, src.name)
             else:
-                # ── Video patch via ffmpeg ──
+                # ── Video patch via ffmpeg (unchanged) ──
                 tmp = dst.with_suffix(".tmp" + dst.suffix)
                 meta: list[tuple[str, str]] = []
                 if r["expected_taken_epoch"]:
@@ -642,17 +668,18 @@ def cmd_patch(
                     if tmp.exists():
                         tmp.unlink()
 
-            # ── Post-patch verification (images only; video metadata is harder to read back) ──
+            # ── Post-patch verification (images only) ──
             if is_image:
                 verify_err = _verify_patch(
                     exiftool_bin, dst,
                     r["expected_taken_epoch"], r["expected_lat"], r["expected_lng"],
+                    session=session,
                 )
                 if verify_err:
                     if not err:
                         err = f"verify-failed: {verify_err}"
                 else:
-                    err = ""  # verification passed — clear any ExifTool warnings
+                    err = ""   # verification passed — clear any ExifTool warnings
                     verified += 1
 
             if err:
@@ -676,6 +703,8 @@ def cmd_patch(
         raise
     finally:
         conn.close()
+        if session is not None:
+            session.close()
     log.info("Patch 完成: ok=%d, failed=%d, verified=%d", ok, fail, verified)
     return {"patched": ok, "failed": fail, "verified": verified}
 
