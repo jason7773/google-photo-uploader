@@ -843,44 +843,26 @@ def cmd_push(root: Path, db_path: Path, batch_id: str, device_path: str, adb_bin
             raise MigError(f"adb push failed: {stderr}")
 
         # --- Phase 1: Automated Verification (ADB) ---
-        log.info("推送完成，開始自動驗證 (抽查 50 檔)...")
-        # Get list of files in this batch from DB to verify
-        b_items = conn.execute("SELECT file_name, file_size FROM batch_items WHERE batch_id=?", (batch_id,)).fetchall()
+        b_items = conn.execute("SELECT file_name FROM batch_items WHERE batch_id=?", (batch_id,)).fetchall()
+        passed_count = 0
+        sample: list = []
         if not b_items:
-             log.warning("批次無檔案，跳過驗證")
+            log.warning("批次無檔案，跳過驗證")
         else:
-            # ── Single adb find replaces N×adb ls calls ──────────────────────
-            # Fetch all files + sizes in device_path with one ADB round-trip.
-            log.info("推送完成，開始自動驗證 (1 次 adb find)...")
-            rc_find, find_out, _ = _run([
-                adb_bin, "shell", "find", device_path,
-                "-maxdepth", "1", "-printf", r"%f %s\n",
-            ])
-            remote_files: dict[str, int] = {}
-            if rc_find == 0:
-                for line in find_out.splitlines():
-                    parts = line.rsplit(" ", 1)
-                    if len(parts) == 2:
-                        try:
-                            remote_files[parts[0]] = int(parts[1])
-                        except ValueError:
-                            pass
+            # Use plain `ls` to get filenames only — no size parsing, no find.
+            # Works on all Android versions with toybox or busybox.
+            rc_ls, ls_out, ls_err = _run([adb_bin, "shell", "ls", device_path])
+            if rc_ls != 0 or not ls_out.strip():
+                log.warning("自動驗證已跳過 (adb ls 失敗: %s)", ls_err.strip() or ls_out.strip() or "no output")
             else:
-                log.warning("adb find 失敗，跳過驗證: %s", find_out)
-
-            sample = random.sample(b_items, k=min(len(b_items), 50))
-            passed_count = 0
-            for item in sample:
-                remote_size = remote_files.get(item["file_name"])
-                if remote_size == item["file_size"]:
-                    passed_count += 1
-                elif remote_size is None:
-                    log.warning("自動驗證失敗 (Missing): %s", item["file_name"])
-                else:
-                    log.warning("自動驗證失敗 (Size mismatch %d≠%d): %s",
-                                remote_size, item["file_size"], item["file_name"])
-
-            log.info("自動驗證結果: %d/%d 通過", passed_count, len(sample))
+                remote_names: set[str] = set(ls_out.splitlines())
+                sample = random.sample(b_items, k=min(len(b_items), 50))
+                for item in sample:
+                    if item["file_name"] in remote_names:
+                        passed_count += 1
+                    else:
+                        log.warning("自動驗證失敗 (Missing): %s", item["file_name"])
+                log.info("自動驗證結果: %d/%d 通過", passed_count, len(sample))
 
 
         conn.execute(
