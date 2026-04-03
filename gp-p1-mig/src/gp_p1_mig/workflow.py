@@ -799,30 +799,39 @@ def cmd_push(root: Path, db_path: Path, batch_id: str, device_path: str, adb_bin
         if not b_items:
              log.warning("批次無檔案，跳過驗證")
         else:
-            # Pick random 50
+            # ── Single adb find replaces N×adb ls calls ──────────────────────
+            # Fetch all files + sizes in device_path with one ADB round-trip.
+            log.info("推送完成，開始自動驗證 (1 次 adb find)...")
+            rc_find, find_out, _ = _run([
+                adb_bin, "shell", "find", device_path,
+                "-maxdepth", "1", "-printf", r"%f %s\n",
+            ])
+            remote_files: dict[str, int] = {}
+            if rc_find == 0:
+                for line in find_out.splitlines():
+                    parts = line.rsplit(" ", 1)
+                    if len(parts) == 2:
+                        try:
+                            remote_files[parts[0]] = int(parts[1])
+                        except ValueError:
+                            pass
+            else:
+                log.warning("adb find 失敗，跳過驗證: %s", find_out)
+
             sample = random.sample(b_items, k=min(len(b_items), 50))
             passed_count = 0
             for item in sample:
-                # Check if file exists on device
-                # adb shell ls -l /sdcard/DCIM/Camera/IMG_2019.jpg
-                # use strict path joining for device path (always forward slash)
-                target_file = f"{device_path.rstrip('/')}/{item['file_name']}"
-                # Quote the path in case of spaces
-                cmd = [adb_bin, "shell", "ls", "-l", f"'{target_file}'"]
-                rc_ls, stdout_ls, _ = _run(cmd)
-                if rc_ls == 0 and stdout_ls:
-                    # Extract file size from ls -l output using regex for precise matching
-                    size_match = re.search(r'\b' + str(item['file_size']) + r'\b', stdout_ls)
-                    if size_match:
-                        passed_count += 1
-                    else:
-                        log.warning("自動驗證失敗 (Size mismatch): %s", item['file_name'])
+                remote_size = remote_files.get(item["file_name"])
+                if remote_size == item["file_size"]:
+                    passed_count += 1
+                elif remote_size is None:
+                    log.warning("自動驗證失敗 (Missing): %s", item["file_name"])
                 else:
-                    log.warning("自動驗證失敗 (Missing/Size mismatch): %s", item['file_name'])
-            
+                    log.warning("自動驗證失敗 (Size mismatch %d≠%d): %s",
+                                remote_size, item["file_size"], item["file_name"])
+
             log.info("自動驗證結果: %d/%d 通過", passed_count, len(sample))
-            # You might want to store this result or raise error if too many fail?
-            # For now, just log it.
+
 
         conn.execute(
             "UPDATE batches SET pushed_at=?, status='PUSHED', device_target_path=? WHERE batch_id=?",
