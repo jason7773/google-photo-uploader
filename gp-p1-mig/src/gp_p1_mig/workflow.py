@@ -301,44 +301,85 @@ def _parse_sidecar(sidecar: Path) -> tuple[int | None, float | None, float | Non
     return ts, lat, lng
 
 
-def cmd_reconcile(db_path: Path) -> dict:
+def cmd_reconcile(db_path: Path, progress: ProgressCallback = None) -> dict:
+    import bisect
     matched = 0
     parsed = 0
     log.info("開始比對 sidecar")
-    with transaction(db_path) as conn:
-        rows = conn.execute("SELECT id, extracted_path, sidecar_path, has_sidecar FROM media_items WHERE patch_status='NEW'").fetchall()
-        log.info("共 %d 筆待比對", len(rows))
-        by_dir: dict[str, list[Path]] = {}
-        for r in rows:
-            path = Path(r["extracted_path"])
-            by_dir.setdefault(str(path.parent), [])
-        for d in list(by_dir):
-            by_dir[d] = list(Path(d).glob("*.json"))
 
-        for r in rows:
+    with transaction(db_path) as conn:
+        rows = conn.execute(
+            "SELECT id, extracted_path, sidecar_path, has_sidecar FROM media_items WHERE patch_status='NEW'"
+        ).fetchall()
+        total = len(rows)
+        log.info("共 %d 筆待比對", total)
+
+        # ── Phase 1: Pre-scan directories ─────────────────────────────────────
+        # For each directory, read all *.json files ONCE and build two indices:
+        #   by_dir_norm:  dir → { normalized_stem → json_path }   O(1) lookup
+        #   by_dir_title: dir → ( [sorted_title_stems], [paths] ) O(log n) bisect
+        dir_set = {str(Path(r["extracted_path"]).parent) for r in rows}
+        log.info("正在預載 %d 個目錄的 JSON 索引...", len(dir_set))
+
+        by_dir_norm: dict[str, dict[str, Path]] = {}
+        by_dir_title: dict[str, tuple[list[str], list[Path]]] = {}
+
+        for d in dir_set:
+            norm_map: dict[str, Path] = {}
+            title_list: list[tuple[str, Path]] = []
+            for json_path in Path(d).glob("*.json"):
+                # Build normalized-stem index (first match wins)
+                jnorm = _normalize_stem(json_path.name)
+                norm_map.setdefault(jnorm, json_path)
+                # Read JSON once for title index
+                try:
+                    data = json.loads(json_path.read_text(encoding="utf-8"))
+                    title = data.get("title", "")
+                    if title:
+                        title_list.append((Path(title).stem.lower(), json_path))
+                except (json.JSONDecodeError, OSError):
+                    pass
+            by_dir_norm[d] = norm_map
+            # Sort by title stem for binary-search prefix matching
+            title_list.sort(key=lambda x: x[0])
+            by_dir_title[d] = (
+                [t[0] for t in title_list],  # stems (sorted)
+                [t[1] for t in title_list],  # paths (parallel list)
+            )
+
+        # ── Phase 2: Match each media file ────────────────────────────────────
+        sidecar_updates: list[tuple[str, int]] = []  # (sidecar_path, id)
+        meta_updates: list[tuple] = []               # (epoch, lat, lng, id)
+
+        for i, r in enumerate(rows, 1):
+            if progress:
+                progress(i, total, Path(r["extracted_path"]).name)
+
             media_path = Path(r["extracted_path"])
+            dir_key = str(media_path.parent)
+
             if not r["has_sidecar"]:
-                # Try fuzzy match from directory listing
                 norm = _normalize_stem(media_path.name)
                 candidate = None
-                for json_path in by_dir.get(str(media_path.parent), []):
-                    if _normalize_stem(json_path.name) == norm:
-                        candidate = json_path
-                        break
-                # Fallback: try direct _find_sidecar (handles .supplemental-metadata.json)
+
+                # 1. O(1) normalized-stem dict lookup
+                candidate = by_dir_norm.get(dir_key, {}).get(norm)
+
+                # 2. Direct filename check (.jpg.json / .supplemental-metadata.json)
                 if not candidate:
                     candidate = _find_sidecar(media_path)
-                # Fallback: match via JSON title field (handles truncated filenames)
+
+                # 3. O(log n) title prefix search via bisect (replaces O(n) disk reads)
                 if not candidate:
-                    for json_path in by_dir.get(str(media_path.parent), []):
-                        if _match_by_title(media_path, json_path):
-                            candidate = json_path
-                            break
+                    media_stem = media_path.stem.lower()
+                    if len(media_stem) >= 10:
+                        t_stems, t_paths = by_dir_title.get(dir_key, ([], []))
+                        idx = bisect.bisect_left(t_stems, media_stem)
+                        if idx < len(t_stems) and t_stems[idx].startswith(media_stem):
+                            candidate = t_paths[idx]
+
                 if candidate:
-                    conn.execute(
-                        "UPDATE media_items SET sidecar_path=?, has_sidecar=1, updated_at=CURRENT_TIMESTAMP WHERE id=?",
-                        (str(candidate), r["id"]),
-                    )
+                    sidecar_updates.append((str(candidate), r["id"]))
                     matched += 1
                     sidecar = candidate
                 else:
@@ -350,17 +391,27 @@ def cmd_reconcile(db_path: Path) -> dict:
 
             if sidecar.exists():
                 ts, lat, lng = _parse_sidecar(sidecar)
-                conn.execute(
-                    """
-                    UPDATE media_items
-                    SET expected_taken_epoch=?, expected_lat=?, expected_lng=?,
-                        patch_status=CASE WHEN patch_status='NEW' THEN 'READY' ELSE patch_status END,
-                        updated_at=CURRENT_TIMESTAMP
-                    WHERE id=?
-                    """,
-                    (ts, lat, lng, r["id"]),
-                )
+                meta_updates.append((ts, lat, lng, r["id"]))
                 parsed += 1
+
+        # ── Phase 3: Batch DB writes ───────────────────────────────────────────
+        if sidecar_updates:
+            conn.executemany(
+                "UPDATE media_items SET sidecar_path=?, has_sidecar=1, updated_at=CURRENT_TIMESTAMP WHERE id=?",
+                sidecar_updates,
+            )
+        if meta_updates:
+            conn.executemany(
+                """
+                UPDATE media_items
+                SET expected_taken_epoch=?, expected_lat=?, expected_lng=?,
+                    patch_status=CASE WHEN patch_status='NEW' THEN 'READY' ELSE patch_status END,
+                    updated_at=CURRENT_TIMESTAMP
+                WHERE id=?
+                """,
+                meta_updates,
+            )
+
     log.info("比對完成: matched=%d, parsed=%d", matched, parsed)
     return {"matched_sidecar": matched, "parsed": parsed}
 

@@ -104,7 +104,9 @@ def reconcile_cmd(root: Path = typer.Option(None), db: Path = typer.Option(None)
     _setup_logging(verbose)
     r = _root(root)
     d = _db(r, db)
-    _run(lambda: cmd_reconcile(d))
+    prog, cb = _make_progress()
+    with prog:
+        _run(lambda: cmd_reconcile(d, progress=cb))
 
 
 @app.command("patch")

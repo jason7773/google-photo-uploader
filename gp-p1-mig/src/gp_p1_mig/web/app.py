@@ -225,7 +225,7 @@ def api_ingest():
 
 @app.route("/api/reconcile", methods=["POST"])
 def api_reconcile():
-    _run_task("Reconcile", cmd_reconcile, _db())
+    _run_task("Reconcile", cmd_reconcile, _db(), progress=_progress_callback)
     return jsonify({"ok": True})
 
 
