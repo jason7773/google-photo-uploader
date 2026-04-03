@@ -60,16 +60,18 @@ def _detect_real_ext(path: Path) -> str:
             return "jpg"
         if header[:8] == b'\x89PNG\r\n\x1a\n':
             return "png"
-        if header[4:12] in (b'ftypheic', b'ftypmif1'):
-            return "heic"
-        if header[4:8] == b'ftyp':
-            # QuickTime MOV: brand = b'qt  '  |  MP4: isom / mp41 / mp42 / etc.
-            return "mov" if header[8:12] == b'qt  ' else "mp4"
-        if header[4:8] in (b'moov', b'mdat'):
-            # Older containers without ftyp box — QuickTime tends to use 'moov' first
-            return "mov" if path.suffix.lower() == ".mov" else "mp4"
         if header[:4] == b'RIFF' and header[8:12] == b'WEBP':
             return "webp"
+        if header[4:8] == b'ftyp':
+            brand = header[8:12]
+            # HEIC / HEIF family (must check before MOV/MP4)
+            if brand in (b'heic', b'heis', b'heim', b'hevc', b'mif1', b'msf1'):
+                return "heic"
+            # QuickTime MOV vs MPEG-4
+            return "mov" if brand == b'qt  ' else "mp4"
+        if header[4:8] in (b'moov', b'mdat'):
+            # Older containers without ftyp — trust the file's own extension
+            return path.suffix.lower().lstrip(".")
     except OSError:
         pass
     return path.suffix.lower().lstrip(".")
@@ -129,16 +131,20 @@ def _hash_and_detect(path: Path) -> tuple[str, str]:
         ext = "jpg"
     elif magic[:8] == b'\x89PNG\r\n\x1a\n':
         ext = "png"
-    elif magic[4:12] in (b'ftypheic', b'ftypmif1'):
-        ext = "heic"
+    elif magic[:4] == b'RIFF' and magic[8:12] == b'WEBP':
+        ext = "webp"
     elif magic[4:8] == b'ftyp':
-        # QuickTime MOV: brand = b'qt  '  |  MP4: isom / mp41 / mp42 / M4V  / etc.
-        ext = "mov" if magic[8:12] == b'qt  ' else "mp4"
+        brand = magic[8:12]
+        # HEIC / HEIF family (must check before MOV/MP4)
+        if brand in (b'heic', b'heis', b'heim', b'hevc', b'mif1', b'msf1'):
+            ext = "heic"
+        elif brand == b'qt  ':
+            ext = "mov"
+        else:
+            ext = "mp4"
     elif magic[4:8] in (b'moov', b'mdat'):
         # Older containers without ftyp box — trust fallback extension
         ext = fallback if fallback in ("mov", "mp4") else "mp4"
-    elif magic[:4] == b'RIFF' and magic[8:12] == b'WEBP':
-        ext = "webp"
     else:
         ext = fallback
     return h.hexdigest(), ext
