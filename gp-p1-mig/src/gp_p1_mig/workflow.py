@@ -820,8 +820,6 @@ def cmd_make_batch(root: Path, db_path: Path, max_bytes: int, max_files: int) ->
 
 
 def cmd_push(root: Path, db_path: Path, batch_id: str, device_path: str, adb_bin: str = "adb") -> dict:
-    passed_count = 0
-    sample = []
     with transaction(db_path) as conn:
         row = conn.execute("SELECT * FROM batches WHERE batch_id=?", (batch_id,)).fetchone()
         if not row:
@@ -842,35 +840,12 @@ def cmd_push(root: Path, db_path: Path, batch_id: str, device_path: str, adb_bin
         if rc != 0:
             raise MigError(f"adb push failed: {stderr}")
 
-        # --- Phase 1: Automated Verification (ADB) ---
-        b_items = conn.execute("SELECT file_name FROM batch_items WHERE batch_id=?", (batch_id,)).fetchall()
-        passed_count = 0
-        sample: list = []
-        if not b_items:
-            log.warning("批次無檔案，跳過驗證")
-        else:
-            # Use plain `ls` to get filenames only — no size parsing, no find.
-            # Works on all Android versions with toybox or busybox.
-            rc_ls, ls_out, ls_err = _run([adb_bin, "shell", "ls", device_path])
-            if rc_ls != 0 or not ls_out.strip():
-                log.warning("自動驗證已跳過 (adb ls 失敗: %s)", ls_err.strip() or ls_out.strip() or "no output")
-            else:
-                remote_names: set[str] = set(ls_out.splitlines())
-                sample = random.sample(b_items, k=min(len(b_items), 50))
-                for item in sample:
-                    if item["file_name"] in remote_names:
-                        passed_count += 1
-                    else:
-                        log.warning("自動驗證失敗 (Missing): %s", item["file_name"])
-                log.info("自動驗證結果: %d/%d 通過", passed_count, len(sample))
-
-
         conn.execute(
             "UPDATE batches SET pushed_at=?, status='PUSHED', device_target_path=? WHERE batch_id=?",
             (now_iso(), device_path, batch_id),
         )
     log.info("批次 %s 推送完成 -> %s", batch_id, device_path)
-    return {"batch_id": batch_id, "device_path": device_path, "verify_passed": passed_count, "verify_total": len(sample)}
+    return {"batch_id": batch_id, "device_path": device_path}
 
 
 def cmd_export_verify(root: Path, db_path: Path, batch_id: str, sample_size: int = 30) -> dict:
