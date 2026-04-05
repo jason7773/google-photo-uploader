@@ -341,8 +341,19 @@ def _normalize_stem(name: str) -> str:
     stem = Path(name).stem
     # Strip Google's newer sidecar suffix
     stem = re.sub(r"\.supplemental-metadata$", "", stem, flags=re.I)
-    stem = re.sub(r"\.(jpg|jpeg|heic|png|mp4|mov)$", "", stem, flags=re.I)
+    # Strip any embedded media extension (e.g. IMG.jpg inside IMG.jpg.json)
+    stem = re.sub(
+        r"\.(jpg|jpeg|heic|heif|png|gif|webp|mp4|mov|avi|mkv|3gp|m4v|wmv|mts|m2ts)$",
+        "", stem, flags=re.I,
+    )
+    # Strip known edit suffixes BEFORE duplicate numbers, because Google Photos
+    # can produce names like "IMG_1234(1)-edited" where (1) is not at the end.
+    stem = re.sub(r"[-_](edited|edit|copy|副本|原始)$", "", stem, flags=re.I)
+    # Strip Google duplicate-copy numbering: (1), (2)  and  ~2, ~3 variants
     stem = re.sub(r"\(\d+\)$", "", stem)
+    stem = re.sub(r"~\d+$", "", stem)
+    # Collapse separator characters (hyphen, underscore, space) so
+    # "IMG_1234" and "IMG-1234" normalize to the same string.
     stem = re.sub(r"[-_ ]+", "", stem)
     return stem.lower()
 
@@ -376,6 +387,12 @@ def cmd_reconcile(db_path: Path, progress: ProgressCallback = None) -> dict:
     import bisect
     matched = 0
     parsed = 0
+    # Per-step match counters for observability
+    matched_exact = 0     # Step 2: direct .jpg.json / .supplemental-metadata.json
+    matched_norm = 0      # Step 1: normalized stem lookup
+    matched_bisect = 0    # Step 3: title prefix bisect
+    skipped_ambiguous = 0   # Step 1 skipped due to collision
+    skipped_nonunique = 0   # Step 3 skipped due to non-unique prefix
     log.info("開始比對 sidecar")
 
     with transaction(db_path) as conn:
@@ -386,22 +403,32 @@ def cmd_reconcile(db_path: Path, progress: ProgressCallback = None) -> dict:
         log.info("共 %d 筆待比對", total)
 
         # ── Phase 1: Pre-scan directories ─────────────────────────────────────
-        # For each directory, read all *.json files ONCE and build two indices:
-        #   by_dir_norm:  dir → { normalized_stem → json_path }   O(1) lookup
-        #   by_dir_title: dir → ( [sorted_title_stems], [paths] ) O(log n) bisect
+        # For each directory, read all *.json files ONCE and build:
+        #   by_dir_norm:      dir → { normalized_stem → json_path }  O(1) lookup
+        #   by_dir_conflicts: dir → { ambiguous_stems }              collision guard
+        #   by_dir_title:     dir → ([sorted title stems], [paths])  O(log n) bisect
         dir_set = {str(Path(r["extracted_path"]).parent) for r in rows}
         log.info("正在預載 %d 個目錄的 JSON 索引...", len(dir_set))
 
         by_dir_norm: dict[str, dict[str, Path]] = {}
+        by_dir_conflicts: dict[str, set[str]] = {}   # ambiguous normalized stems
         by_dir_title: dict[str, tuple[list[str], list[Path]]] = {}
 
         for d in dir_set:
             norm_map: dict[str, Path] = {}
+            conflicts: set[str] = set()
             title_list: list[tuple[str, Path]] = []
-            for json_path in Path(d).glob("*.json"):
-                # Build normalized-stem index (first match wins)
+            for json_path in sorted(Path(d).glob("*.json")):
                 jnorm = _normalize_stem(json_path.name)
-                norm_map.setdefault(jnorm, json_path)
+                if jnorm in norm_map:
+                    # Collision: this stem maps to >1 JSON — flag as ambiguous
+                    conflicts.add(jnorm)
+                    log.debug(
+                        "Normalize stem 碰撞: %s 與 %s (stem=%s)",
+                        json_path.name, norm_map[jnorm].name, jnorm,
+                    )
+                else:
+                    norm_map[jnorm] = json_path
                 # Read JSON once for title index
                 try:
                     data = json.loads(json_path.read_text(encoding="utf-8"))
@@ -411,6 +438,12 @@ def cmd_reconcile(db_path: Path, progress: ProgressCallback = None) -> dict:
                 except (json.JSONDecodeError, OSError):
                     pass
             by_dir_norm[d] = norm_map
+            by_dir_conflicts[d] = conflicts
+            if conflicts:
+                log.info(
+                    "目錄 %s 有 %d 個 normalize stem 碰撞 (將退回精確比對)",
+                    Path(d).name, len(conflicts),
+                )
             # Sort by title stem for binary-search prefix matching
             title_list.sort(key=lambda x: x[0])
             by_dir_title[d] = (
@@ -419,6 +452,7 @@ def cmd_reconcile(db_path: Path, progress: ProgressCallback = None) -> dict:
             )
 
         # ── Phase 2: Match each media file ────────────────────────────────────
+        # Priority order: exact > normalize > bisect-prefix
         sidecar_updates: list[tuple[str, int]] = []  # (sidecar_path, id)
         meta_updates: list[tuple] = []               # (epoch, lat, lng, id)
 
@@ -430,24 +464,47 @@ def cmd_reconcile(db_path: Path, progress: ProgressCallback = None) -> dict:
             dir_key = str(media_path.parent)
 
             if not r["has_sidecar"]:
-                norm = _normalize_stem(media_path.name)
                 candidate = None
 
-                # 1. O(1) normalized-stem dict lookup
-                candidate = by_dir_norm.get(dir_key, {}).get(norm)
+                # ── Step 2 (精確): direct .jpg.json / .supplemental-metadata.json
+                candidate = _find_sidecar(media_path)
+                if candidate:
+                    matched_exact += 1
 
-                # 2. Direct filename check (.jpg.json / .supplemental-metadata.json)
+                # ── Step 1 (normalize): O(1) dict lookup — skip ambiguous stems
                 if not candidate:
-                    candidate = _find_sidecar(media_path)
+                    norm = _normalize_stem(media_path.name)
+                    dir_conflicts = by_dir_conflicts.get(dir_key, set())
+                    if norm in dir_conflicts:
+                        skipped_ambiguous += 1
+                        log.debug(
+                            "Step 1 跳過有歧義 stem: %s → %s", media_path.name, norm
+                        )
+                    else:
+                        candidate = by_dir_norm.get(dir_key, {}).get(norm)
+                        if candidate:
+                            matched_norm += 1
 
-                # 3. O(log n) title prefix search via bisect (replaces O(n) disk reads)
+                # ── Step 3 (bisect): title prefix — only if result is unique
                 if not candidate:
                     media_stem = media_path.stem.lower()
                     if len(media_stem) >= 10:
                         t_stems, t_paths = by_dir_title.get(dir_key, ([], []))
                         idx = bisect.bisect_left(t_stems, media_stem)
                         if idx < len(t_stems) and t_stems[idx].startswith(media_stem):
-                            candidate = t_paths[idx]
+                            # Accept only if no other entry also matches the prefix
+                            next_also_matches = (
+                                idx + 1 < len(t_stems)
+                                and t_stems[idx + 1].startswith(media_stem)
+                            )
+                            if next_also_matches:
+                                skipped_nonunique += 1
+                                log.debug(
+                                    "Step 3 bisect 前綴不唯一，跳過: %s", media_stem
+                                )
+                            else:
+                                candidate = t_paths[idx]
+                                matched_bisect += 1
 
                 if candidate:
                     sidecar_updates.append((str(candidate), r["id"]))
@@ -459,6 +516,7 @@ def cmd_reconcile(db_path: Path, progress: ProgressCallback = None) -> dict:
                     continue
             else:
                 sidecar = Path(r["sidecar_path"])
+
 
             if sidecar.exists():
                 ts, lat, lng = _parse_sidecar(sidecar)
@@ -483,8 +541,21 @@ def cmd_reconcile(db_path: Path, progress: ProgressCallback = None) -> dict:
                 meta_updates,
             )
 
-    log.info("比對完成: matched=%d, parsed=%d", matched, parsed)
-    return {"matched_sidecar": matched, "parsed": parsed}
+    log.info(
+        "比對完成: matched=%d (exact=%d, normalize=%d, bisect=%d), parsed=%d"
+        " | 跳過: ambiguous_stem=%d, nonunique_bisect=%d",
+        matched, matched_exact, matched_norm, matched_bisect, parsed,
+        skipped_ambiguous, skipped_nonunique,
+    )
+    return {
+        "matched_sidecar": matched,
+        "matched_exact": matched_exact,
+        "matched_normalize": matched_norm,
+        "matched_bisect": matched_bisect,
+        "parsed": parsed,
+        "skipped_ambiguous": skipped_ambiguous,
+        "skipped_nonunique": skipped_nonunique,
+    }
 
 
 def _run(cmd: list[str]) -> tuple[int, str, str]:
