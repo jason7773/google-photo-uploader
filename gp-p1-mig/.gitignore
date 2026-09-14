@@ -14,3 +14,9 @@ data/exports/
 tools/*.exe
 tools/*.dll
 data/logs/
+data/backups/
+data/settings.json
+data/settings.json.tmp
+data/local-review/
+tools/**/*.exe
+tools/**/*.dll

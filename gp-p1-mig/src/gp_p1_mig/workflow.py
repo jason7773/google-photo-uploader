@@ -156,11 +156,34 @@ def _find_sidecar(media_path: Path) -> Path | None:
     if p.exists():
         return p
     # Try Google's newer .supplemental-metadata.json format
-    # IMPORTANT: Use with_name() not with_suffix() because we want to APPEND, not REPLACE
-    # e.g. IMG_123.jpg -> IMG_123.jpg.supplemental-metadata.json (not IMG_123.supplemental-metadata.json)
     p2 = media_path.with_name(media_path.name + ".supplemental-metadata.json")
     if p2.exists():
         return p2
+    # Fix A: handle .supplemental-metadata(N).json (e.g. DSC_0278.JPG.supplemental-metadata(1).json)
+    prefix = media_path.name + ".supplemental-metadata"
+    for m in sorted(media_path.parent.glob(prefix + "*.json")):
+        if re.fullmatch(re.escape(media_path.name) + r"\.supplemental-metadata\(\d+\)\.json", m.name, re.I):
+            return m
+    return None
+
+
+def _strip_variant_suffix(filename: str) -> str | None:
+    """Strip the outermost variant marker from a media filename (one level at a time).
+
+    Handles: -已編輯, -EFFECTS, (N), ~N  — in that priority order.
+    Returns the new filename string, or None if nothing was stripped.
+    """
+    p = Path(filename)
+    stem, ext = p.stem, p.suffix
+    new = re.sub(r"[-_](已編輯|EFFECTS|edited|edit|copy|副本|原始)$", "", stem, flags=re.I)
+    if new != stem:
+        return new + ext
+    new = re.sub(r"\(\d+\)$", "", stem)
+    if new != stem:
+        return new + ext
+    new = re.sub(r"~\d+$", "", stem)
+    if new != stem:
+        return new + ext
     return None
 
 
@@ -348,7 +371,7 @@ def _normalize_stem(name: str) -> str:
     )
     # Strip known edit suffixes BEFORE duplicate numbers, because Google Photos
     # can produce names like "IMG_1234(1)-edited" where (1) is not at the end.
-    stem = re.sub(r"[-_](edited|edit|copy|副本|原始)$", "", stem, flags=re.I)
+    stem = re.sub(r"[-_](edited|edit|copy|副本|原始|已編輯|EFFECTS)$", "", stem, flags=re.I)
     # Strip Google duplicate-copy numbering: (1), (2)  and  ~2, ~3 variants
     stem = re.sub(r"\(\d+\)$", "", stem)
     stem = re.sub(r"~\d+$", "", stem)
@@ -357,6 +380,24 @@ def _normalize_stem(name: str) -> str:
     stem = re.sub(r"[-_ ]+", "", stem)
     return stem.lower()
 
+def _parse_epoch_from_name(name: str) -> int | None:
+    """Extract a UTC epoch from common Google Photos filename timestamp patterns.
+
+    Matches patterns like: 20221207_171411, Screenshot_20231228_101721_LINE
+    Returns None if no recognisable timestamp found.
+    """
+    # Look for 8-digit date followed by 6-digit time in the filename stem
+    m = re.search(
+        r"(?<![\d])(20\d{2})(0[1-9]|1[0-2])(0[1-9]|[12]\d|3[01])[_\-T]([01]\d|2[0-3])([0-5]\d)([0-5]\d)(?![\d])",
+        Path(name).stem,
+    )
+    if m:
+        try:
+            y, mo, d, H, M, S = [int(x) for x in m.groups()]
+            return int(datetime(y, mo, d, H, M, S, tzinfo=timezone.utc).timestamp())
+        except ValueError:
+            pass
+    return None
 
 
 def _parse_sidecar(sidecar: Path) -> tuple[int | None, float | None, float | None]:
@@ -388,11 +429,15 @@ def cmd_reconcile(db_path: Path, progress: ProgressCallback = None) -> dict:
     matched = 0
     parsed = 0
     # Per-step match counters for observability
-    matched_exact = 0     # Step 2: direct .jpg.json / .supplemental-metadata.json
-    matched_norm = 0      # Step 1: normalized stem lookup
-    matched_bisect = 0    # Step 3: title prefix bisect
-    skipped_ambiguous = 0   # Step 1 skipped due to collision
-    skipped_nonunique = 0   # Step 3 skipped due to non-unique prefix
+    matched_exact = 0          # Step 2: direct .jpg.json / .supplemental-metadata.json
+    matched_norm = 0           # Step 1: normalized stem lookup
+    matched_bisect = 0         # Step 3: title prefix bisect
+    matched_conflict_title = 0 # Step 1b: collision resolved via title match
+    matched_fallback = 0       # Step 4: variant suffix stripped
+    matched_sibling = 0        # Step 5: borrowed from DB sibling
+    matched_epoch_only = 0     # Step 6: epoch from filename only
+    skipped_ambiguous = 0      # Step 1 skipped due to unresolvable collision
+    skipped_nonunique = 0      # Step 3 skipped due to non-unique prefix
     log.info("開始比對 sidecar")
 
     with transaction(db_path) as conn:
@@ -412,24 +457,35 @@ def cmd_reconcile(db_path: Path, progress: ProgressCallback = None) -> dict:
 
         by_dir_norm: dict[str, dict[str, Path]] = {}
         by_dir_conflicts: dict[str, set[str]] = {}   # ambiguous normalized stems
+        by_dir_conflict_groups: dict[str, dict[str, list[tuple[str, Path]]]] = {}  # stem -> [(title, path)]
         by_dir_title: dict[str, tuple[list[str], list[Path]]] = {}
+
+        # ── Step 5 pre-build: norm → (sidecar_path, epoch) from already-matched items ──
+        # Used to borrow metadata for variant duplicates (已編輯 / (N) copies) that
+        # have no sidecar of their own but share a base photo already in the DB.
+        sibling_meta: dict[str, tuple[str, int | None, float | None, float | None]] = {}
+        for sib in conn.execute(
+            "SELECT original_name, sidecar_path, expected_taken_epoch, expected_lat, expected_lng "
+            "FROM media_items WHERE has_sidecar=1"
+        ).fetchall():
+            n = _normalize_stem(sib["original_name"])
+            if n not in sibling_meta:
+                sibling_meta[n] = (
+                    sib["sidecar_path"],
+                    sib["expected_taken_epoch"],
+                    sib["expected_lat"],
+                    sib["expected_lng"],
+                )
 
         for d in dir_set:
             norm_map: dict[str, Path] = {}
             conflicts: set[str] = set()
+            conflict_groups: dict[str, list[tuple[str, Path]]] = {}
             title_list: list[tuple[str, Path]] = []
             for json_path in sorted(Path(d).glob("*.json")):
                 jnorm = _normalize_stem(json_path.name)
-                if jnorm in norm_map:
-                    # Collision: this stem maps to >1 JSON — flag as ambiguous
-                    conflicts.add(jnorm)
-                    log.debug(
-                        "Normalize stem 碰撞: %s 與 %s (stem=%s)",
-                        json_path.name, norm_map[jnorm].name, jnorm,
-                    )
-                else:
-                    norm_map[jnorm] = json_path
-                # Read JSON once for title index
+                # Read JSON once for title index + conflict resolution
+                title = ""
                 try:
                     data = json.loads(json_path.read_text(encoding="utf-8"))
                     title = data.get("title", "")
@@ -437,11 +493,29 @@ def cmd_reconcile(db_path: Path, progress: ProgressCallback = None) -> dict:
                         title_list.append((Path(title).stem.lower(), json_path))
                 except (json.JSONDecodeError, OSError):
                     pass
+                if jnorm in norm_map:
+                    # Collision: flag as ambiguous and build conflict group
+                    conflicts.add(jnorm)
+                    if jnorm not in conflict_groups:
+                        first = norm_map[jnorm]
+                        try:
+                            first_title = json.loads(first.read_text(encoding="utf-8")).get("title", "")
+                        except (json.JSONDecodeError, OSError):
+                            first_title = ""
+                        conflict_groups[jnorm] = [(first_title, first)]
+                    conflict_groups[jnorm].append((title, json_path))
+                    log.debug(
+                        "Normalize stem 碰撞: %s 與 %s (stem=%s)",
+                        json_path.name, norm_map[jnorm].name, jnorm,
+                    )
+                else:
+                    norm_map[jnorm] = json_path
             by_dir_norm[d] = norm_map
             by_dir_conflicts[d] = conflicts
+            by_dir_conflict_groups[d] = conflict_groups
             if conflicts:
                 log.info(
-                    "目錄 %s 有 %d 個 normalize stem 碰撞 (將退回精確比對)",
+                    "目錄 %s 有 %d 個 normalize stem 碰撞 (將退回 title 比對)",
                     Path(d).name, len(conflicts),
                 )
             # Sort by title stem for binary-search prefix matching
@@ -471,15 +545,23 @@ def cmd_reconcile(db_path: Path, progress: ProgressCallback = None) -> dict:
                 if candidate:
                     matched_exact += 1
 
-                # ── Step 1 (normalize): O(1) dict lookup — skip ambiguous stems
+                # ── Step 1 (normalize): O(1) dict lookup; if collision try title match
                 if not candidate:
                     norm = _normalize_stem(media_path.name)
                     dir_conflicts = by_dir_conflicts.get(dir_key, set())
                     if norm in dir_conflicts:
-                        skipped_ambiguous += 1
-                        log.debug(
-                            "Step 1 跳過有歧義 stem: %s → %s", media_path.name, norm
-                        )
+                        # Fix B: try resolving collision by exact title filename match
+                        media_name_lower = media_path.name.lower()
+                        for t_str, j in by_dir_conflict_groups.get(dir_key, {}).get(norm, []):
+                            if t_str and Path(t_str).name.lower() == media_name_lower:
+                                candidate = j
+                                matched_conflict_title += 1
+                                break
+                        if not candidate:
+                            skipped_ambiguous += 1
+                            log.debug(
+                                "Step 1 碰撞無法解析: %s → %s", media_path.name, norm
+                            )
                     else:
                         candidate = by_dir_norm.get(dir_key, {}).get(norm)
                         if candidate:
@@ -492,7 +574,6 @@ def cmd_reconcile(db_path: Path, progress: ProgressCallback = None) -> dict:
                         t_stems, t_paths = by_dir_title.get(dir_key, ([], []))
                         idx = bisect.bisect_left(t_stems, media_stem)
                         if idx < len(t_stems) and t_stems[idx].startswith(media_stem):
-                            # Accept only if no other entry also matches the prefix
                             next_also_matches = (
                                 idx + 1 < len(t_stems)
                                 and t_stems[idx + 1].startswith(media_stem)
@@ -506,13 +587,68 @@ def cmd_reconcile(db_path: Path, progress: ProgressCallback = None) -> dict:
                                 candidate = t_paths[idx]
                                 matched_bisect += 1
 
+                # ── Step 4 (fallback): strip variant suffixes and retry ──────────
+                # Handles: -已編輯, -EFFECTS, (N), ~N — up to 4 levels deep
+                if not candidate:
+                    name_to_try = media_path.name
+                    for _ in range(4):
+                        stripped = _strip_variant_suffix(name_to_try)
+                        if not stripped:
+                            break
+                        name_to_try = stripped
+                        base_path = media_path.with_name(name_to_try)
+                        candidate = _find_sidecar(base_path)
+                        if not candidate:
+                            base_norm = _normalize_stem(name_to_try)
+                            if base_norm not in by_dir_conflicts.get(dir_key, set()):
+                                candidate = by_dir_norm.get(dir_key, {}).get(base_norm)
+                        if candidate:
+                            matched_fallback += 1
+                            log.debug(
+                                "Step 4 變體退回命中: %s → %s → %s",
+                                media_path.name, name_to_try, candidate.name,
+                            )
+                            break
+
+                # ── Step 5: borrow from DB sibling ──────────────────────────────
+                # The base photo (stripped of variant suffixes) may already be in
+                # the DB with a sidecar.  Reuse its sidecar_path + metadata.
+                if not candidate:
+                    name_to_try2 = media_path.name
+                    for _ in range(5):
+                        stripped2 = _strip_variant_suffix(name_to_try2)
+                        if not stripped2:
+                            break
+                        name_to_try2 = stripped2
+                        sib_norm = _normalize_stem(name_to_try2)
+                        if sib_norm in sibling_meta:
+                            sib_sidecar, sib_epoch, sib_lat, sib_lng = sibling_meta[sib_norm]
+                            # Prefer epoch from filename if available (more precise)
+                            epoch_inferred = _parse_epoch_from_name(media_path.name) or sib_epoch
+                            meta_updates.append((epoch_inferred, sib_lat, sib_lng, r["id"]))
+                            matched_sibling += 1
+                            log.debug(
+                                "Step 5 兄弟借用: %s → norm=%s (epoch=%s)",
+                                media_path.name, sib_norm, epoch_inferred,
+                            )
+                            break
+                    else:
+                        # ── Step 6: epoch from filename only ─────────────────────
+                        epoch_inferred = _parse_epoch_from_name(media_path.name)
+                        if epoch_inferred:
+                            meta_updates.append((epoch_inferred, None, None, r["id"]))
+                            matched_epoch_only += 1
+                            log.debug(
+                                "Step 6 檔名時間: %s → epoch=%s", media_path.name, epoch_inferred
+                            )
+                    # Either way, keep has_sidecar=0 but transition to READY so patch can run
+                    continue
+
                 if candidate:
                     sidecar_updates.append((str(candidate), r["id"]))
                     matched += 1
                     sidecar = candidate
                 else:
-                    # No sidecar found yet — keep as NEW
-                    # (JSON may arrive in a later ZIP import)
                     continue
             else:
                 sidecar = Path(r["sidecar_path"])
@@ -542,9 +678,11 @@ def cmd_reconcile(db_path: Path, progress: ProgressCallback = None) -> dict:
             )
 
     log.info(
-        "比對完成: matched=%d (exact=%d, normalize=%d, bisect=%d), parsed=%d"
-        " | 跳過: ambiguous_stem=%d, nonunique_bisect=%d",
-        matched, matched_exact, matched_norm, matched_bisect, parsed,
+        "比對完成: matched=%d (exact=%d, norm=%d, bisect=%d, conflict_title=%d, fallback=%d"
+        " sibling=%d, epoch_only=%d) parsed=%d | 跳過: ambiguous=%d, nonunique=%d",
+        matched, matched_exact, matched_norm, matched_bisect,
+        matched_conflict_title, matched_fallback,
+        matched_sibling, matched_epoch_only, parsed,
         skipped_ambiguous, skipped_nonunique,
     )
     return {
@@ -552,6 +690,10 @@ def cmd_reconcile(db_path: Path, progress: ProgressCallback = None) -> dict:
         "matched_exact": matched_exact,
         "matched_normalize": matched_norm,
         "matched_bisect": matched_bisect,
+        "matched_conflict_title": matched_conflict_title,
+        "matched_fallback": matched_fallback,
+        "matched_sibling": matched_sibling,
+        "matched_epoch_only": matched_epoch_only,
         "parsed": parsed,
         "skipped_ambiguous": skipped_ambiguous,
         "skipped_nonunique": skipped_nonunique,
@@ -935,9 +1077,9 @@ def cmd_export_verify(root: Path, db_path: Path, batch_id: str, sample_size: int
 
         with checklist.open("w", newline="", encoding="utf-8") as f:
             w = csv.writer(f)
-            w.writerow(["batch_id", "content_id", "file_name", "check_uploaded", "check_taken_time", "check_gps", "note"])
+            w.writerow(["batch_id", "content_id", "file_name", "result", "check_uploaded", "check_taken_time", "check_gps", "note"])
             for it in items:
-                w.writerow([batch_id, it["content_id"], it["file_name"], "", "", "", ""])
+                w.writerow([batch_id, it["content_id"], it["file_name"], "", "", "", "", ""])
 
         pick = random.sample(list(items), k=min(sample_size, len(items)))
         with samples.open("w", newline="", encoding="utf-8") as f:
@@ -949,86 +1091,91 @@ def cmd_export_verify(root: Path, db_path: Path, batch_id: str, sample_size: int
 
 
 def cmd_import_verify(db_path: Path, batch_id: str, result_csv: Path) -> dict:
-    passed = True
-    with result_csv.open("r", encoding="utf-8") as f:
+    with result_csv.open("r", encoding="utf-8-sig", newline="") as f:
         reader = csv.DictReader(f)
+        if not {"batch_id", "content_id", "result"}.issubset(reader.fieldnames or []):
+            raise MigError("CSV 必須包含 batch_id、content_id、result。")
         rows = list(reader)
-        if not rows:
-            raise MigError("result csv is empty")
-        for r in rows:
-            if r.get("result", "").strip().lower() not in {"ok", "pass", "passed", ""}:
-                passed = False
-
+    if not rows:
+        raise MigError("result csv is empty")
     with transaction(db_path) as conn:
-        if passed:
-            conn.execute("UPDATE batches SET status='VERIFIED', verified_at=? WHERE batch_id=?", (now_iso(), batch_id))
-            status = "VERIFIED"
-        else:
-            status = "PUSHED"
-    return {"batch_id": batch_id, "status": status, "rows": len(rows)}
+        batch = conn.execute("SELECT status FROM batches WHERE batch_id=?", (batch_id,)).fetchone()
+        if not batch or batch["status"] != "PUSHED":
+            raise MigError("只有 PUSHED 批次可匯入驗證結果。")
+        expected = {r[0] for r in conn.execute("SELECT content_id FROM batch_items WHERE batch_id=?", (batch_id,))}
+        seen = set()
+        for row in rows:
+            cid = row.get("content_id", "")
+            if row.get("batch_id") != batch_id or cid not in expected or cid in seen:
+                raise MigError("CSV 含錯誤批次、未知檔案或重複項目。")
+            seen.add(cid)
+            if row.get("result", "").strip().lower() not in {"ok", "pass", "passed"}:
+                raise MigError("每個檔案都必須明確通過驗證；空白不算通過。")
+        if not expected or seen != expected:
+            raise MigError("CSV 必須涵蓋整個批次；抽樣清單不能解鎖清理。")
+        conn.execute("UPDATE batches SET status='VERIFIED', verified_at=? WHERE batch_id=?", (now_iso(), batch_id))
+    return {"batch_id": batch_id, "status": "VERIFIED", "rows": len(rows)}
+
+
+def _purge_plan(conn, root: Path, batch_id: str) -> list[Path]:
+    batch = conn.execute("SELECT status, local_batch_path FROM batches WHERE batch_id=?", (batch_id,)).fetchone()
+    if not batch:
+        raise MigError(f"batch not found: {batch_id}")
+    if batch["status"] != "VERIFIED":
+        raise MigError("purge is only allowed for VERIFIED batch")
+    # Originals and sidecars stay in place. Only generated copies are archived.
+    work = (root / "data/work").resolve()
+    sources = [(Path(batch["local_batch_path"]) / "files", work / "batches")]
+    sources += [(Path(r[0]), work / "patched") for r in conn.execute(
+        "SELECT patched_path FROM media_items WHERE batch_id=? AND patched_path IS NOT NULL", (batch_id,))]
+    result = []
+    for source, allowed in sources:
+        resolved = source.resolve()
+        allowed = allowed.resolve()
+        if not allowed.is_relative_to(work) or not resolved.is_relative_to(allowed) or resolved == allowed:
+            raise MigError(f"清理路徑不在指定工作區內，已停止：{source}")
+        if source.is_symlink():
+            raise MigError(f"拒絕清理符號連結：{source}")
+        if source.exists() and resolved not in result:
+            result.append(resolved)
+    return result
+
+
+def preview_purge(root: Path, db_path: Path, batch_id: str) -> dict:
+    with transaction(db_path) as conn:
+        paths = _purge_plan(conn, root, batch_id)
+    return {"paths": [str(p) for p in paths], "count": len(paths),
+            "note": "僅移動產生的副本到 data/work/purge_trash；保留解壓原檔、sidecar、ZIP 與資料庫。移動不會釋放磁碟空間。"}
 
 
 def cmd_purge(root: Path, db_path: Path, batch_id: str) -> dict:
-    with transaction(db_path) as conn:
-        row = conn.execute("SELECT status, local_batch_path FROM batches WHERE batch_id=?", (batch_id,)).fetchone()
-        if not row:
-            raise MigError(f"batch not found: {batch_id}")
-        if row["status"] != "VERIFIED":
-            raise MigError("purge is only allowed for VERIFIED batch")
+    moved = []
+    try:
+        with transaction(db_path) as conn:
+            paths = _purge_plan(conn, root, batch_id)
+            trash_base = root / "data/work/purge_trash"
+            if not trash_base.resolve().is_relative_to((root / "data/work").resolve()):
+                raise MigError("回收目錄不在工作區內。")
+            trash = trash_base / uuid.uuid4().hex
+            trash.mkdir(parents=True, exist_ok=False)
+            mapping = [{"source": str(p), "destination": str(trash / str(i) / p.name)} for i, p in enumerate(paths)]
+            (trash / "manifest.json").write_text(json.dumps({"batch_id": batch_id, "files": mapping}, ensure_ascii=False, indent=2), encoding="utf-8")
+            for item in mapping:
+                src, dst = Path(item["source"]), Path(item["destination"])
+                dst.parent.mkdir(parents=True, exist_ok=True)
+                shutil.move(str(src), str(dst))
+                moved.append((src, dst))
+            conn.execute("UPDATE media_items SET patch_status='PURGED' WHERE batch_id=?", (batch_id,))
+            conn.execute("UPDATE batches SET status='PURGED', purged_at=? WHERE batch_id=?", (now_iso(), batch_id))
+    except Exception:
+        for src, dst in reversed(moved):
+            if dst.exists() and not src.exists():
+                shutil.move(str(dst), str(src))
+        raise
+    log.info("批次 %s 副本已移至 %s；原檔與 sidecar 保留。", batch_id, trash)
+    return {"batch_id": batch_id, "moved": len(moved), "trash_dir": str(trash),
+            "removed_extracted": 0, "removed_sidecar": 0}
 
-        # 1. Delete batch files directory
-        files_dir = Path(row["local_batch_path"]) / "files"
-        if files_dir.exists():
-            shutil.rmtree(files_dir)
-
-        # 2. Delete patched files + extracted originals + sidecars
-        items = conn.execute(
-            "SELECT extracted_path, sidecar_path, patched_path FROM media_items WHERE batch_id=?",
-            (batch_id,),
-        ).fetchall()
-
-        removed_patched = 0
-        removed_extracted = 0
-        removed_sidecar = 0
-
-        for it in items:
-            # Delete patched file
-            if it["patched_path"]:
-                p = Path(it["patched_path"])
-                if p.exists():
-                    p.unlink()
-                    removed_patched += 1
-
-            # Delete original extracted file
-            if it["extracted_path"]:
-                p = Path(it["extracted_path"])
-                if p.exists():
-                    p.unlink()
-                    removed_extracted += 1
-
-            # Delete sidecar JSON
-            if it["sidecar_path"]:
-                p = Path(it["sidecar_path"])
-                if p.exists():
-                    p.unlink()
-                    removed_sidecar += 1
-
-        conn.execute(
-            "UPDATE media_items SET patched_path=NULL, patch_status='PURGED' WHERE batch_id=?",
-            (batch_id,),
-        )
-        conn.execute("UPDATE batches SET status='PURGED', purged_at=? WHERE batch_id=?", (now_iso(), batch_id))
-
-    log.info(
-        "清除完成: batch=%s, patched=%d, extracted=%d, sidecar=%d",
-        batch_id, removed_patched, removed_extracted, removed_sidecar,
-    )
-    return {
-        "batch_id": batch_id,
-        "removed_patched": removed_patched,
-        "removed_extracted": removed_extracted,
-        "removed_sidecar": removed_sidecar,
-    }
 
 
 def cmd_clean_duplicates(db_path: Path) -> dict:

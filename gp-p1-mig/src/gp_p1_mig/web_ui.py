@@ -1,6 +1,7 @@
 """Launch the local Web UI — opens browser automatically."""
 from __future__ import annotations
 
+import argparse
 import logging
 import sys
 import threading
@@ -10,9 +11,9 @@ from logging.handlers import TimedRotatingFileHandler
 from pathlib import Path
 
 
-def _setup_logging():
+def _setup_logging(workspace: Path):
     """Set up persistent file logging in data/logs/."""
-    log_dir = Path.cwd() / "data" / "logs"
+    log_dir = workspace / "data" / "logs"
     log_dir.mkdir(parents=True, exist_ok=True)
 
     log_file = log_dir / f"app_{datetime.now().strftime('%Y%m%d')}.log"
@@ -37,7 +38,13 @@ def _setup_logging():
 
 
 def main():
-    _setup_logging()
+    parser = argparse.ArgumentParser(description="本機 Google Photos Takeout 遷移工具")
+    parser.add_argument("--port", type=int, default=5000)
+    parser.add_argument("--no-browser", action="store_true")
+    args = parser.parse_args()
+    from .settings import load_settings
+    settings = load_settings()
+    _setup_logging(Path(settings["root"]))
 
     try:
         from .web.app import start
@@ -46,10 +53,13 @@ def main():
         print("請先安裝: pip install flask flask-socketio")
         sys.exit(1)
 
-    port = 5000
+    port = args.port
     url = f"http://127.0.0.1:{port}"
     print(f"啟動本地 Web UI: {url}")
-    threading.Timer(1.5, lambda: webbrowser.open(url)).start()
+    if not args.no_browser:
+        timer = threading.Timer(1.5, lambda: webbrowser.open(url))
+        timer.daemon = True
+        timer.start()
     start(port=port)
 
 

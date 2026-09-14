@@ -1,6 +1,8 @@
 """External tool path discovery: tools/ folder → system PATH → error."""
 from __future__ import annotations
 
+import sys
+import os
 import shutil
 import subprocess
 from pathlib import Path
@@ -13,6 +15,7 @@ class ToolNotFoundError(RuntimeError):
 # When running from PyInstaller bundle: _MEIPASS/tools/ or beside the exe.
 _TOOL_SEARCH_DIRS: list[Path] = [
     Path(__file__).resolve().parents[2] / "tools",   # source layout: gp-p1-mig/tools/
+    Path(sys.executable).resolve().parent / "tools",
     Path(__file__).resolve().parent / "tools",        # bundled layout
 ]
 
@@ -29,7 +32,8 @@ def _find_bin(name: str, extra_dirs: list[Path] | None = None) -> str:
     # Patterns to match: "exiftool.exe", "exiftool(-k).exe", plain "exiftool"
     exe_names = [f"{name}.exe", f"{name}(-k).exe", name]
 
-    search_roots = (extra_dirs or []) + _TOOL_SEARCH_DIRS
+    configured = [Path(os.environ["GP_P1_MIG_TOOLS"])] if os.environ.get("GP_P1_MIG_TOOLS") else []
+    search_roots = (extra_dirs or []) + configured + _TOOL_SEARCH_DIRS
     for root_dir in search_roots:
         if not root_dir.is_dir():
             continue
@@ -78,7 +82,7 @@ def find_adb(extra_dirs: list[Path] | None = None) -> str:
 def _version(bin_path: str) -> str:
     try:
         p = subprocess.run(
-            [bin_path, "-ver"] if "exiftool" in bin_path.lower() else [bin_path, "-version"],
+            [bin_path, "-ver"] if "exiftool" in Path(bin_path).name.lower() else [bin_path, "version" if Path(bin_path).stem.lower() == "adb" else "-version"],
             capture_output=True, text=True, timeout=10)
         return p.stdout.strip().split("\n")[0] if p.returncode == 0 else "unknown"
     except Exception:

@@ -3,11 +3,13 @@ from __future__ import annotations
 
 import logging
 import threading
+import secrets
 from pathlib import Path
 
 from flask import Flask, jsonify, render_template, request
 from flask_socketio import SocketIO
 
+from ..settings import load_settings, save_settings
 from ..db import connect, init_db
 from ..tools import find_adb, verify_tools
 from ..workflow import (
@@ -20,6 +22,7 @@ from ..workflow import (
     cmd_mark_verified,
     cmd_patch,
     cmd_purge,
+    preview_purge,
     cmd_push,
     cmd_reconcile,
     cmd_retry_failed,
@@ -37,13 +40,15 @@ import threading
 
 app = Flask(__name__)
 app.config["SECRET_KEY"] = os.urandom(24).hex()
+app.config["TRUSTED_HOSTS"] = ["127.0.0.1", "localhost", "[::1]"]
+app.config["MAX_CONTENT_LENGTH"] = 1024 * 1024
+API_TOKEN = secrets.token_urlsafe(32)
 socketio = SocketIO(app, async_mode="threading")
 
 # ── Global state (single-user local app) ──
 
 STATE = {
-    "root": str(Path.cwd().resolve()),
-    "db": str(default_db(Path.cwd().resolve())),
+    **load_settings(),
     "busy": False,
     "current_task": None,
 }
@@ -87,8 +92,8 @@ def _run_task(name: str, fn, *args, **kwargs):
     """Run a workflow function in a background thread, emitting results via SocketIO."""
     with _state_lock:
         if STATE["busy"]:
-            socketio.emit("error", {"message": "另一個任務正在執行中，請稍候。"})
-            return
+            from werkzeug.exceptions import Conflict
+            raise Conflict("另一個任務正在執行中，請稍候。")
         STATE["busy"] = True
         STATE["current_task"] = name
 
@@ -110,11 +115,30 @@ def _run_task(name: str, fn, *args, **kwargs):
     threading.Thread(target=_worker, daemon=True).start()
 
 
+@app.before_request
+def protect_local_api():
+    origin = request.headers.get("Origin")
+    if origin and origin != request.host_url.rstrip("/"):
+        return jsonify(ok=False, error="拒絕跨來源操作。"), 403
+    if request.method == "POST" and request.path.startswith("/api/"):
+        token = request.headers.get("X-App-Token", "")
+        if not secrets.compare_digest(token, API_TOKEN):
+            return jsonify(ok=False, error="操作憑證已失效，請重新整理網頁。"), 403
+        if not request.is_json or not isinstance(request.get_json(silent=True), dict):
+            return jsonify(ok=False, error="請提供 JSON 物件。"), 400
+
+
+@app.errorhandler(400)
+@app.errorhandler(409)
+def api_request_error(error):
+    return jsonify(ok=False, error=error.description), error.code
+
+
 # ── Pages ──
 
 @app.route("/")
 def index():
-    return render_template("index.html")
+    return render_template("index.html", api_token=API_TOKEN)
 
 
 # ── REST API ──
@@ -130,7 +154,11 @@ def api_state():
         tools = verify_tools()
     except Exception:
         pass
+    conn = None
+    db_error = None
     try:
+        if not d.exists():
+            raise FileNotFoundError("尚未初始化工作區，請按 Init。")
         conn = connect(d)
 
         # ── Single GROUP BY replaces 6 separate COUNT(*) queries ──────────────
@@ -171,9 +199,11 @@ def api_state():
             "SELECT batch_id, status, total_files, total_bytes, created_at FROM batches ORDER BY created_at DESC"
         ).fetchall():
             batches.append(dict(row))
-        conn.close()
-    except Exception:
-        pass
+    except Exception as exc:
+        db_error = str(exc)
+    finally:
+        if conn is not None:
+            conn.close()
     return jsonify({
         "root": STATE["root"],
         "db": STATE["db"],
@@ -182,17 +212,36 @@ def api_state():
         "stats": stats,
         "batches": batches,
         "tools": tools,
+        "db_error": db_error,
     })
 
 
 @app.route("/api/settings", methods=["POST"])
 def api_settings():
     data = request.json or {}
-    if "root" in data:
-        STATE["root"] = str(Path(data["root"]).resolve())
-    if "db" in data:
-        STATE["db"] = str(Path(data["db"]).resolve())
-    return jsonify({"ok": True, "root": STATE["root"], "db": STATE["db"]})
+    with _state_lock:
+        if STATE["busy"]:
+            return jsonify(ok=False, error="任務執行中不能切換工作區。"), 409
+        raw_root = data.get("root", STATE["root"])
+        if not isinstance(raw_root, str) or not raw_root.strip():
+            return jsonify(ok=False, error="請填寫工作區絕對路徑。"), 400
+        root = Path(raw_root).expanduser()
+        if not root.is_absolute():
+            return jsonify(ok=False, error="工作區必須使用絕對路徑。"), 400
+        root = root.resolve()
+        raw_db = data.get("db", "")
+        if not raw_db or (root != _root() and raw_db == STATE["db"]):
+            db = default_db(root)
+        else:
+            db = Path(raw_db).expanduser()
+            if not db.is_absolute():
+                db = root / db
+        db = db.resolve()
+        if root.exists() and not root.is_dir():
+            return jsonify(ok=False, error="工作區必須是資料夾。"), 400
+        save_settings(root, db)
+        STATE.update(root=str(root), db=str(db))
+    return jsonify(ok=True, root=str(root), db=str(db))
 
 
 @app.route("/api/init", methods=["POST"])
@@ -282,6 +331,14 @@ def api_import_verify():
     return jsonify({"ok": True})
 
 
+@app.route("/api/purge-preview")
+def api_purge_preview():
+    try:
+        return jsonify(ok=True, plan=preview_purge(_root(), _db(), request.args.get("batch_id", "")))
+    except MigError as exc:
+        return jsonify(ok=False, error=str(exc)), 400
+
+
 @app.route("/api/purge", methods=["POST"])
 def api_purge():
     data = request.json or {}
@@ -304,11 +361,8 @@ def api_mark_verified():
 
 @app.route("/api/clean-duplicates", methods=["POST"])
 def api_clean_duplicates():
-    try:
-        stats = cmd_clean_duplicates(Path(_db()))
-        return jsonify({"ok": True, "stats": stats})
-    except Exception as e:
-        return jsonify({"ok": False, "error": str(e)})
+    _run_task("Clean Duplicates", cmd_clean_duplicates, _db())
+    return jsonify(ok=True)
 
 
 @app.route("/api/batch-samples", methods=["GET"])
@@ -327,7 +381,9 @@ def api_batch_samples():
 # ── SocketIO events ──
 
 @socketio.on("connect")
-def on_connect():
+def on_connect(auth=None):
+    if not auth or not secrets.compare_digest(str(auth.get("token", "")), API_TOKEN):
+        return False
     log.info("瀏覽器已連線")
 
 

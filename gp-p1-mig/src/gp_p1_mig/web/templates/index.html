@@ -6,8 +6,8 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>gp-p1-mig — Google Photos Migration Tool</title>
   <link rel="stylesheet" href="/static/css/style.css">
-  <script src="https://cdn.socket.io/4.7.4/socket.io.min.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+  <meta name="app-token" content="{{ api_token }}">
+  <script src="{{ url_for('static', filename='vendor/socket.io.min.js') }}"></script>
 </head>
 
 <body>
@@ -72,7 +72,7 @@
         </div>
         <div class="stat-card" style="border-color: rgba(139,92,246,0.3);">
           <div class="stat-value" id="statUploaded" style="color: #a78bfa;">0</div>
-          <div class="stat-label">已上傳</div>
+          <div class="stat-label">已整理批次檔案</div>
         </div>
         <div class="stat-card danger">
           <div class="stat-value" id="statFailed">0</div>
@@ -153,7 +153,7 @@
     <section class="tab-content" id="tab-settings">
       <h1>系統設定</h1>
       <div class="card">
-        <h2>路徑設定</h2>
+        <h2>路徑設定</h2><p>沿用既有資料庫即可保留紀錄。變更工作區不會搬移舊檔案；儲存後新工作區請先按 Init。</p><p id="workspaceError" role="status"></p>
         <div class="form-group">
           <label>工作區根目錄 (Root)</label>
           <input type="text" id="settingRoot" class="input full" placeholder="C:\path\to\repo">
@@ -195,7 +195,7 @@
           <div class="help-section active" id="help-overview">
             <h2>📸 專案目的</h2>
             <p>此工具專為 <strong>Google Pixel 1 (OG)</strong> 設計，用於將 Google Photos Takeout 匯出的照片/影片，修復遺失的 GPS
-              座標與拍攝時間後，自動推送到手機，以享受「原始畫質免費無限空間」福利。</p>
+              座標與拍攝時間後，推送到手機。Google Photos 雲端備份須由手機完成，儲存資格依您的裝置與帳戶而定。</p>
             <div class="info-box">
               <strong>🔒 資料安全</strong><br>
               所有運算皆在您的電腦本機執行（Local），不會將照片上傳至任何第三方伺服器。
@@ -205,7 +205,7 @@
           <!-- Setup -->
           <div class="help-section" id="help-setup">
             <h2>🔧 前置準備 (必讀)</h2>
-            <p>本工具依賴由您自行下載的外部工具，請確保以下檔案已放入 <code>gp-p1-mig/tools/</code> 資料夾中：</p>
+            <p>原始碼下載已包含 Windows ExifTool 與 FFmpeg；ADB 需另外下載。請將完整工具資料夾放入 <code>gp-p1-mig/tools/</code> 資料夾中：</p>
 
             <h3>1. ADB (Android Debug Bridge)</h3>
             <p><strong>用於推送檔案到手機。</strong></p>
@@ -221,7 +221,7 @@
             <p><strong>用於寫入照片 Metadata。</strong></p>
             <ol>
               <li>下載 <a href="https://exiftool.org" target="_blank">Windows Executable</a></li>
-              <li>解壓後將 <code>exiftool(-k).exe</code> 重新命名為 <code>exiftool.exe</code></li>
+              <li>保留完整解壓資料夾（包括 exiftool_files）；可將 <code>exiftool(-k).exe</code> 重新命名為 <code>exiftool.exe</code></li>
               <li>放入 <code>tools/</code> 資料夾</li>
             </ol>
 
@@ -264,8 +264,8 @@
               <li><strong>分批處理</strong>：Google Takeout 檔案通常很大，建議一次處理一個 ZIP，但 <strong>Reconcile</strong> 建議在所有 ZIP
                 匯入後再執行，或是每匯入一個就執行一次也可以（未匹配的會保持 NEW 狀態）。</li>
               <li><strong>Retry Failed</strong>：若 Patch 過程中有失敗（例如 Exif 損壞），請點擊「Retry
-                Failed」。程式會嘗試用更強力的修復模式（-fast2）並進行資料驗證，通常能解決 99% 的問題。</li>
-              <li><strong>Push 路徑</strong>：預設推送到 <code>/sdcard/DCIM/Camera</code>，這樣 Google Photos App 開啟後就會自動偵測並備份。
+                Failed」。程式會重新嘗試修復，請在操作日誌確認結果。</li>
+              <li><strong>Push 路徑</strong>：預設推送到 <code>/sdcard/DCIM/Camera</code>，請在手機確認此目錄已開啟備份，並等待雲端備份完成。
               </li>
             </ul>
           </div>
@@ -310,7 +310,7 @@ cd gp-p1-mig/tools
 ./adb devices</code></pre>
             <p>應顯示如下內容：</p>
             <pre><code>List of devices attached
-FA6B90303015    device</code></pre>
+YOUR_DEVICE_SERIAL    device</code></pre>
             <p>若顯示 <code>unauthorized</code>，請檢查手機螢幕並按「允許」。<br>若列表為空，請檢查 USB 線或驅動程式。</p>
 
             <h3>ExifTool 修復失敗</h3>
@@ -392,8 +392,8 @@ FA6B90303015    device</code></pre>
           <!-- Items will be injected here -->
         </div>
         <div class="verify-actions">
-          <button id="verifyConfirmBtn" class="btn" onclick="confirmVerifyBatch()">✅ 確認並刪除</button>
-          <p class="hint-text">確認後將標記為 VERIFIED 並立即清除本機所有相關檔案（批次、修復檔、原始檔）。</p>
+          <button id="verifyConfirmBtn" class="btn" onclick="confirmVerifyBatch()">✅ 確認已完成雲端備份</button>
+          <p class="hint-text">確認僅記錄您已完成整批雲端備份。若要整理副本，請另外在批次管理操作；原檔保留。</p>
         </div>
       </div>
     </div>

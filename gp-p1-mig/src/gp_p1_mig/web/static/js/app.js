@@ -1,9 +1,11 @@
 /* ── gp-p1-mig Web UI — Frontend Logic ── */
 
-const socket = io();
+const appToken = document.querySelector('meta[name="app-token"]').content;
+const socket = io({ auth: { token: appToken } });
 
 // ── State ──
 let appState = {};
+window.addEventListener('unhandledrejection', e => { addLog('ERROR', e.reason?.message || String(e.reason)); e.preventDefault(); });
 
 // ── Socket.IO Events ──
 socket.on('connect', () => {
@@ -100,12 +102,12 @@ function formatBytes(bytes) {
 function api(endpoint, body) {
     return fetch('/api/' + endpoint, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', 'X-App-Token': appToken },
         body: body ? JSON.stringify(body) : '{}',
     }).then(r => r.json()).then(data => {
-        if (!data.ok) addLog('ERROR', data.error || '操作失敗');
+        if (!data.ok) throw new Error(data.error || '操作失敗');
         return data;
-    }).catch(err => addLog('ERROR', '網路錯誤: ' + err.message));
+    });
 }
 
 function refresh() {
@@ -135,8 +137,12 @@ function refresh() {
         renderBatches(data.batches || []);
 
         // Settings
-        document.getElementById('settingRoot').value = data.root || '';
-        document.getElementById('settingDb').value = data.db || '';
+        if (!document.getElementById('settingRoot').dataset.dirty) {
+            document.getElementById('settingRoot').value = data.root || '';
+            document.getElementById('settingDb').value = data.db || '';
+        }
+        document.getElementById('workspaceError').textContent = data.db_error || '';
+        setButtonsDisabled(!!data.busy);
     }).catch(() => { });
 }
 
@@ -164,7 +170,7 @@ function renderBatches(batches) {
       <td>
         ${b.status === 'CREATED' ? `<button class="btn small" onclick="batchAction('push','${esc(b.batch_id)}')">Push</button>` : ''}
         ${b.status === 'PUSHED' ? `<button class="btn small" onclick="verifyBatch('${esc(b.batch_id)}')">Verify</button>` : ''}
-        ${b.status === 'VERIFIED' ? `<button class="btn small danger" onclick="batchAction('purge','${esc(b.batch_id)}')">Purge (Free Space)</button>` : ''}
+        ${b.status === 'VERIFIED' ? `<button class="btn small danger" onclick="batchAction('purge','${esc(b.batch_id)}')">移動副本到回收目錄</button>` : ''}
       </td>
     </tr>
   `).join('');
@@ -237,7 +243,7 @@ function openVerifyModal(batchId) {
             if (data.ok) {
                 renderVerifyList(data.samples || []);
             } else {
-                list.innerHTML = '<div style="color:red">無法取得範例: ' + data.error + '</div>';
+                list.textContent = '無法取得範例: ' + data.error;
             }
         });
 }
@@ -248,13 +254,19 @@ function renderVerifyList(samples) {
         list.innerHTML = '<div style="padding:20px;text-align:center">此批次無檔案</div>';
         return;
     }
-    // Remove checkboxes - just show the list with copy buttons
-    list.innerHTML = samples.map(name => `
-        <div class="verify-item">
-            <span>${name}</span>
-            <button class="copy-btn" onclick="copyToClipboard('${name}')">複製</button>
-        </div>
-    `).join('');
+    list.replaceChildren();
+    for (const name of samples) {
+        const item = document.createElement('div');
+        item.className = 'verify-item';
+        const label = document.createElement('span');
+        label.textContent = name;
+        const button = document.createElement('button');
+        button.className = 'copy-btn';
+        button.textContent = '複製';
+        button.addEventListener('click', () => copyToClipboard(name));
+        item.append(label, button);
+        list.append(item);
+    }
 }
 
 function copyToClipboard(text) {
@@ -265,29 +277,8 @@ function copyToClipboard(text) {
 
 function confirmVerifyBatch() {
     if (!currentVerifyBatchId) return;
-
-    // Disable button to prevent double-click
-    const btn = document.getElementById('verifyConfirmBtn');
-    btn.disabled = true;
-    btn.textContent = '處理中...';
-
-    // Step 1: Mark as verified
-    api('mark-verified', { batch_id: currentVerifyBatchId })
-        .then(() => {
-            addLog('INFO', '✅ 批次 ' + currentVerifyBatchId + ' 已標記為 VERIFIED');
-            // Step 2: Immediately purge
-            return api('purge', { batch_id: currentVerifyBatchId });
-        })
-        .then(() => {
-            addLog('INFO', '🗑️ 批次 ' + currentVerifyBatchId + ' 已清除本機檔案');
-            closeVerifyModal();
-            refresh();
-        })
-        .catch(err => {
-            addLog('ERROR', '處理失敗: ' + err);
-            btn.disabled = false;
-            btn.textContent = '✅ 確認並刪除';
-        });
+    verifyBatch(currentVerifyBatchId);
+    closeVerifyModal();
 }
 
 function closeVerifyModal() {
@@ -318,16 +309,7 @@ function cleanDuplicates() {
     if (!confirm('確定要清理重複檔案嗎？\n\n安全機制：\n- 已在 media_items 中的檔案不會被移動\n- 檔案會移至 duplicates_trash 資料夾（不永久刪除）')) return;
 
     addLog('INFO', '⏳ 正在清理重複檔案...');
-    api('clean-duplicates', {})
-        .then(data => {
-            if (data.ok) {
-                const s = data.stats;
-                addLog('INFO', '✅ 清理完成！移動 ' + s.moved_count + ' 個，跳過 ' + s.skipped_protected + ' 個受保護，釋放 ' + s.space_freed_mb + ' MB');
-                if (s.trash_dir) addLog('INFO', '📁 已移至: ' + s.trash_dir);
-            } else {
-                addLog('ERROR', '清理失敗: ' + data.error);
-            }
-        });
+    api('clean-duplicates', {});
 }
 
 function batchAction(action, batchId) {
@@ -341,9 +323,13 @@ function batchAction(action, batchId) {
             api('push', { batch_id: batchId, device_path: devicePath });
         }
     } else if (action === 'purge') {
-        if (confirm('確定要清除批次 ' + batchId + ' 的本機快取嗎？(請確保 Google Photos 已備份)')) {
-            api('purge', { batch_id: batchId });
-        }
+        fetch('/api/purge-preview?batch_id=' + encodeURIComponent(batchId))
+            .then(r => r.json()).then(data => {
+                if (!data.ok) throw new Error(data.error);
+                const preview = data.plan;
+                const message = preview.note + '\n\n即將移動 ' + preview.count + ' 個檔案／目錄：\n' + preview.paths.slice(0, 20).join('\n') + (preview.count > 20 ? '\n（其餘項目省略，完整清單可由預覽 API 查看）' : '');
+                if (confirm(message)) return api('purge', { batch_id: batchId });
+            });
     }
 }
 
@@ -352,11 +338,15 @@ function saveSettings() {
     const root = document.getElementById('settingRoot').value.trim();
     const db = document.getElementById('settingDb').value.trim();
     api('settings', { root, db }).then(() => {
+        delete document.getElementById('settingRoot').dataset.dirty;
         addLog('INFO', '✅ 設定已儲存');
         refresh();
     });
 }
 
+for (const id of ['settingRoot', 'settingDb']) {
+    document.getElementById(id).addEventListener('input', () => { document.getElementById('settingRoot').dataset.dirty = '1'; });
+}
 // ── Init ──
 refresh();
 setInterval(refresh, 10000);

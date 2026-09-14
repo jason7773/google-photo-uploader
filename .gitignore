@@ -1,10 +1,16 @@
 # Local runtime data (at any project depth)
 *.log
 *.log.*
-data/logs/
-data/work/
-data/state/
-data/exports/
+**/data/logs/
+**/data/work/
+**/data/state/
+**/data/exports/
+**/data/backups/
+**/data/settings.json
+**/data/settings.json.tmp
+**/data/local-review/
+**/tools/**/*.exe
+**/tools/**/*.dll
 *.db
 *.db-*
 *.sqlite
