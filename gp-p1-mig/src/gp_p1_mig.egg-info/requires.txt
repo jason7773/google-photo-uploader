@@ -1,8 +1,0 @@
-typer>=0.12
-rich>=13.7
-flask>=3.0
-flask-socketio>=5.3
-
-[dev]
-pytest>=7
-pillow

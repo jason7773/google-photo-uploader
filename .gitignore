@@ -1,0 +1,34 @@
+# Local runtime data (at any project depth)
+*.log
+*.log.*
+data/logs/
+data/work/
+data/state/
+data/exports/
+*.db
+*.db-*
+*.sqlite
+*.sqlite-*
+*.sqlite3
+*.sqlite3-*
+
+# Local credentials and environment configuration
+.env
+.env.*
+!.env.example
+credentials.json
+client_secret*.json
+token.json
+token.pickle
+*.pem
+*.key
+
+# Python generated files and local environments
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.venv/
+venv/
+build/
+dist/
